@@ -27,8 +27,12 @@ RUN pip install --upgrade pip && \
     pip install psycopg2-binary && \
     pip install -r requirements.txt
 
-# Copy project files
+# Copy project files (excluding cache files via .dockerignore)
 COPY . .
+
+# Remove any cache files that might have been copied
+RUN find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+RUN find . -name "*.pyc" -delete 2>/dev/null || true
 
 # Change ownership of the application files to appuser
 RUN chown -R appuser:appuser /app
@@ -39,5 +43,5 @@ USER appuser
 # Expose port
 EXPOSE 5000
 
-# Run the Flask app
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5000"]
+# Run the Flask app with gunicorn for production
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "wsgi:app"]

@@ -2,10 +2,10 @@ from flask import Blueprint, request, jsonify
 from models import db, User, CHW
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime
+import logging
+import hashlib
 
 bp = Blueprint('chws', __name__)
-
-import logging
 
 @bp.route('/chws/register', methods=['POST'])
 def register_chw():
@@ -49,6 +49,38 @@ def register_chw():
     except Exception as e:
         db.session.rollback()
         logging.error(f"[CHW REGISTER] Exception: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@bp.route('/chws/complete-profile', methods=['POST'])
+@require_auth
+@require_role('chw')
+def complete_chw_profile():
+    """Complete CHW profile after registration and verification"""
+    user = get_current_user()
+    
+    # Check if profile already exists
+    if user.chw:
+        return jsonify({"error": "CHW profile already exists"}), 409
+    
+    data = request.get_json()
+    required_fields = ['license_number', 'location']
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({"error": f"{field} is required."}), 400
+    
+    try:
+        chw = CHW(
+            user_id=user.id,
+            chw_name=user.name,
+            license_number=data['license_number'],
+            location=data['location'],
+            created_at=datetime.utcnow()
+        )
+        db.session.add(chw)
+        db.session.commit()
+        return jsonify({"message": "CHW profile completed successfully", "chw_id": chw.id}), 201
+    except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @bp.route('/chws/<int:chw_id>', methods=['GET'])

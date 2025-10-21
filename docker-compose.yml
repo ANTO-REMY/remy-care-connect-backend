@@ -16,22 +16,43 @@ services:
       timeout: 5s
       retries: 5
 
-  # NOTE: During development, use the local Flask backend on port 5050.
-  # This container can remain idle to avoid confusion with endpoints.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
-    build: .
-    command: flask run --host=0.0.0.0 --port=5000
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    command: flask run --host=0.0.0.0 --port=5000 --debug
     volumes:
       - .:/app/backend
+      - /app/backend/__pycache__
+      - /app/backend/routes/__pycache__
     environment:
       FLASK_APP: wsgi:app
       FLASK_ENV: development
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/remyafya
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/remyafya
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_KEY: remy-care-connect-jwt-secret-key-change-in-production-2024
+      SECRET_KEY: remy-care-connect-flask-secret-key-change-in-production-2024
       PYTHONPATH: /app/backend
     ports:
       - "5000:5000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:

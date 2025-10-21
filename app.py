@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_session import Session
+from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 import redis
@@ -41,6 +42,7 @@ def create_app():
     migrate.init_app(app, db)
     jwt.init_app(app)
     sess.init_app(app)
+    CORS(app, origins=["http://localhost:8080"], supports_credentials=True)
 
     from routes.routes_health import bp as health_bp
     from auth import bp as auth_bp

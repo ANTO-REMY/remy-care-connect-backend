@@ -1,11 +1,11 @@
 {
   "info": {
-    "_postman_id": "remy-care-connect-hybrid-auth-v3",
-    "name": "RemyCareConnect API v3 - Hybrid Auth",
-    "description": "Complete API collection for RemyCareConnect with hybrid authentication (JWT + Session). Includes automatic token handling, registration, OTP verification, and role-based access.",
+    "_postman_id": "remy-care-connect-complete-v4",
+    "name": "RemyCareConnect API v4 - Complete Collection",
+    "description": "Complete API collection for RemyCareConnect maternal health management system. Features hybrid authentication (JWT + Session), automatic token handling, comprehensive endpoints for mothers, CHWs, nurses, next of kin, and verification management. Includes both original working endpoints and new auth-based endpoints.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "version": {
-      "major": 3,
+      "major": 4,
       "minor": 0,
       "patch": 0
     }
@@ -62,7 +62,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:5050",
+      "value": "http://localhost:5000",
       "type": "string"
     },
     {
@@ -464,6 +464,395 @@
               "path": ["api", "v1", "mothers", "1"]
             },
             "description": "Update mother profile"
+          }
+        },
+        {
+          "name": "Delete Mother Profile",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mothers", "1"]
+            },
+            "description": "Delete mother profile (CHW/Nurse only)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "👨‍⚕️ CHWs",
+      "description": "Community Health Worker management endpoints",
+      "item": [
+        {
+          "name": "Register CHW",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John CHW\",\n  \"phone\": \"+254700000002\",\n  \"license_number\": \"CHW001\",\n  \"location\": \"Nairobi, Kenya\",\n  \"pin\": \"1234\",\n  \"confirm_pin\": \"1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "register"]
+            },
+            "description": "Register a new CHW (original working endpoint)"
+          }
+        },
+        {
+          "name": "Complete CHW Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_number\": \"CHW001\",\n  \"location\": \"Nairobi, Kenya\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/complete-profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "complete-profile"]
+            },
+            "description": "Complete CHW profile after auth registration (CHW only)"
+          }
+        },
+        {
+          "name": "Get CHW Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "1"]
+            },
+            "description": "Get CHW profile by ID"
+          }
+        },
+        {
+          "name": "Update CHW Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Updated\",\n  \"license_number\": \"CHW001-NEW\",\n  \"location\": \"Mombasa, Kenya\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "1"]
+            },
+            "description": "Update CHW profile"
+          }
+        },
+        {
+          "name": "Delete CHW Profile",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "1"]
+            },
+            "description": "Delete CHW profile"
+          }
+        },
+        {
+          "name": "List CHWs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws"]
+            },
+            "description": "Get list of all CHWs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "👩‍⚕️ Nurses",
+      "description": "Nurse management endpoints",
+      "item": [
+        {
+          "name": "Register Nurse",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Mary Nurse\",\n  \"phone\": \"+254700000003\",\n  \"license_number\": \"RN001\",\n  \"location\": \"Nairobi Hospital\",\n  \"pin\": \"1234\",\n  \"confirm_pin\": \"1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "register"]
+            },
+            "description": "Register a new nurse (original working endpoint)"
+          }
+        },
+        {
+          "name": "Complete Nurse Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_number\": \"RN001\",\n  \"location\": \"Nairobi Hospital\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/complete-profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "complete-profile"]
+            },
+            "description": "Complete nurse profile after auth registration (Nurse only)"
+          }
+        },
+        {
+          "name": "Get Nurse Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "1"]
+            },
+            "description": "Get nurse profile by ID"
+          }
+        },
+        {
+          "name": "Update Nurse Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Mary Updated\",\n  \"license_number\": \"RN001-NEW\",\n  \"location\": \"Kenyatta Hospital\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "1"]
+            },
+            "description": "Update nurse profile"
+          }
+        },
+        {
+          "name": "Delete Nurse Profile",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "1"]
+            },
+            "description": "Delete nurse profile"
+          }
+        },
+        {
+          "name": "List Nurses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses"]
+            },
+            "description": "Get list of all nurses"
+          }
+        }
+      ]
+    },
+    {
+      "name": "👨‍👩‍👧‍👦 Next of Kin",
+      "description": "Next of Kin management for mothers",
+      "item": [
+        {
+          "name": "Add Next of Kin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_name\": \"Jane Doe\",\n  \"name\": \"John Doe\",\n  \"phone\": \"+254700000004\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nextofkin"]
+            },
+            "description": "Add next of kin for a mother"
+          }
+        },
+        {
+          "name": "Get Next of Kin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nextofkin", "1"]
+            },
+            "description": "Get next of kin by ID"
+          }
+        },
+        {
+          "name": "Update Next of Kin",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Updated\",\n  \"phone\": \"+254700000005\",\n  \"relationship\": \"Spouse\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nextofkin", "1"]
+            },
+            "description": "Update next of kin information"
+          }
+        },
+        {
+          "name": "Delete Next of Kin",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nextofkin", "1"]
+            },
+            "description": "Delete next of kin record"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📋 Verifications",
+      "description": "Phone verification management",
+      "item": [
+        {
+          "name": "Get Verification Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/+254700000001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verifications", "+254700000001"]
+            },
+            "description": "Check verification status for a phone number"
+          }
+        },
+        {
+          "name": "List All Verifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verifications"]
+            },
+            "description": "Get all verification records (admin only)"
           }
         }
       ]
