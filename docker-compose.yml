@@ -40,7 +40,7 @@ services:
     environment:
       FLASK_APP: wsgi:app
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/remyafya
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/remyafya
       REDIS_URL: redis://redis:6379
       JWT_SECRET_KEY: remy-care-connect-jwt-secret-key-change-in-production-2024
       SECRET_KEY: remy-care-connect-flask-secret-key-change-in-production-2024
