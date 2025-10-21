@@ -1,0 +1,37 @@
+
+services:
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: remyafya
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NOTE: During development, use the local Flask backend on port 5050.
+  # This container can remain idle to avoid confusion with endpoints.
+  backend:
+    build: .
+    command: flask run --host=0.0.0.0 --port=5000
+    volumes:
+      - .:/app/backend
+    environment:
+      FLASK_APP: wsgi:app
+      FLASK_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/remyafya
+      PYTHONPATH: /app/backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
