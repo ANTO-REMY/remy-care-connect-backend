@@ -2,12 +2,30 @@
 
 A comprehensive healthcare management system backend with hybrid authentication, role-based access control, and Docker deployment.
 
+## 🚀 Quick Start (Development)
 
+### Prerequisites
+- Python 3.11+
+- Docker & Docker Compose
+- PostgreSQL client (optional)
 
+### Development Setup
+1. **Start Docker services (DB + Redis):**
+   ```bash
+   docker-compose up -d
+   ```
 
-### Verify Installation
-- Health Check: http://localhost:5000/api/v1/health
-- API Base URL: http://localhost:5000/api/v1
+2. **Start Flask development server:**
+   ```bash
+   python start_dev.py
+   # OR
+   python test_server.py
+   ```
+
+3. **Verify Installation:**
+   - Health Check: http://localhost:5001/api/v1/health
+   - API Base URL: http://localhost:5001/api/v1
+   - Postman Collection: `postman/collection.json` (configured for port 5001)
 
 ## 🏗️ Architecture
 
@@ -45,9 +63,13 @@ A comprehensive healthcare management system backend with hybrid authentication,
 4. Run: `./start.sh`
 
 ### Development Deployment
-1. Run: `./start-dev.sh`
-2. Code changes auto-reload
-3. Debug mode enabled
+1. **Start services:** `docker-compose up -d` (PostgreSQL + Redis)
+2. **Start backend:** `python start_dev.py` (Flask on localhost:5001)
+3. **Features:**
+   - Code changes auto-reload
+   - Debug mode enabled
+   - Real-time logs in terminal
+   - Postman collection ready for testing
 
 
 **RemyCareConnect Backend** - Healthcare Management System

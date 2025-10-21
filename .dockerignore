@@ -55,6 +55,11 @@ logs/
 .coverage
 htmlcov/
 .tox/
+test_*.py
+
+# Development files
+start_dev.py
+flask_session/
 
 # Environment files (keep .env.example)
 .env
