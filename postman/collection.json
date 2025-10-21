@@ -88,7 +88,7 @@
   ],
   "item": [
     {
-      "name": "🏥 Health Check",
+      "name": "Health Check",
       "description": "System health and status endpoints",
       "item": [
         {
@@ -110,7 +110,7 @@
       ]
     },
     {
-      "name": "🔐 Authentication",
+      "name": "Authentication",
       "description": "Hybrid authentication system with JWT and sessions",
       "item": [
         {
@@ -396,7 +396,7 @@
       ]
     },
     {
-      "name": "👩‍👶 Mothers",
+      "name": "Mothers",
       "description": "Mother profile management endpoints",
       "item": [
         {
@@ -482,7 +482,7 @@
       ]
     },
     {
-      "name": "👨‍⚕️ CHWs",
+      "name": "CHWs",
       "description": "Community Health Worker management endpoints",
       "item": [
         {
@@ -611,7 +611,7 @@
       ]
     },
     {
-      "name": "👩‍⚕️ Nurses",
+      "name": "Nurses",
       "description": "Nurse management endpoints",
       "item": [
         {
@@ -740,7 +740,7 @@
       ]
     },
     {
-      "name": "👨‍👩‍👧‍👦 Next of Kin",
+      "name": "Next of Kin",
       "description": "Next of Kin management for mothers",
       "item": [
         {
@@ -755,7 +755,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"mother_name\": \"Jane Doe\",\n  \"name\": \"John Doe\",\n  \"phone\": \"+254700000004\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
+              "raw": "{\n  \"user_id\": 1,\n  \"mother_name\": \"Jane Doe\",\n  \"name\": \"John Doe\",\n  \"phone\": \"+254700000004\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -763,9 +763,9 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/nextofkin",
+              "raw": "{{base_url}}/api/v1/nextofkin/",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nextofkin"]
+              "path": ["api", "v1", "nextofkin", ""]
             },
             "description": "Add next of kin for a mother"
           }
@@ -826,7 +826,7 @@
       ]
     },
     {
-      "name": "📋 Verifications",
+      "name": "Verifications",
       "description": "Phone verification management",
       "item": [
         {
@@ -853,6 +853,137 @@
               "path": ["api", "v1", "verifications"]
             },
             "description": "Get all verification records (admin only)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Educational Materials",
+      "description": "Educational material management endpoints",
+      "item": [
+        {
+          "name": "Get Educational Material",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/educational_material/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "educational_material", "1"]
+            },
+            "description": "Get educational material by ID"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CHW Assignments",
+      "description": "CHW-Mother assignment management endpoints",
+      "item": [
+        {
+          "name": "Get Assigned Mothers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/1/mothers",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "1", "mothers"]
+            },
+            "description": "Get mothers assigned to a CHW"
+          }
+        },
+        {
+          "name": "Assign Mother to CHW",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_id\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/1/assign_mother",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "1", "assign_mother"]
+            },
+            "description": "Assign a mother to a CHW (max 2 mothers per CHW)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phone Verification System",
+      "description": "Direct phone verification endpoints (separate from auth)",
+      "item": [
+        {
+          "name": "Send OTP",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+254700000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verifications", "send"]
+            },
+            "description": "Send OTP to phone number for verification"
+          }
+        },
+        {
+          "name": "Verify OTP Code",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+254700000001\",\n  \"code\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verifications", "verify"]
+            },
+            "description": "Verify OTP code for phone number"
           }
         }
       ]
