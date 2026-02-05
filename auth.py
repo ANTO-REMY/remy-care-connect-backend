@@ -8,8 +8,37 @@ from auth_utils import (
 from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError
 import random
+import re
 
 bp = Blueprint('auth', __name__)
+
+def normalize_phone_number(phone):
+    """Normalize phone number from 07xxxxxxxx to +254xxxxxxxx format"""
+    # Remove all spaces and special characters
+    cleaned = re.sub(r'[^0-9]', '', phone)
+    
+    # Only handle 07xxxxxxxx format
+    if cleaned.startswith('07') and len(cleaned) == 10:
+        # Convert 07xxxxxxxx to +254xxxxxxxx
+        return '+254' + cleaned[1:]
+    
+    # Return as-is if not in expected format (will fail validation)
+    return phone
+
+def validate_phone_number(phone):
+    """Validate Kenyan phone number - temporarily allow both formats"""
+    # Remove all spaces and special characters
+    cleaned = re.sub(r'[^0-9+]', '', phone)
+    
+    # Check if it's 07xxxxxxxx format
+    if re.match(r'^07[0-9]{8}$', cleaned):
+        return True
+    
+    # Also temporarily accept +254xxxxxxx format for existing users
+    if re.match(r'^\+254[0-9]{9}$', cleaned):
+        return True
+    
+    return False
 
 @bp.route('/auth/register', methods=['POST'])
 def register():
@@ -22,14 +51,14 @@ def register():
         if not data.get(field):
             return jsonify({'error': f'{field} is required'}), 400
     
-    phone_number = data['phone_number']
+    phone_number = normalize_phone_number(data['phone_number'])
     name = data['name']
     pin = data['pin']
     role = data['role']
     
-    # Validate phone number format (basic validation)
-    if not phone_number.startswith('+') or len(phone_number) < 10:
-        return jsonify({'error': 'Invalid phone number format. Must include country code (e.g., +254...)'}), 400
+    # Validate phone number format
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format (e.g., 0712345678)'}), 400
     
     # Validate PIN length and format
     if len(pin) < 4 or len(pin) > 8:
@@ -95,11 +124,11 @@ def verify_otp():
     """Verify OTP and activate user account"""
     data = request.get_json()
     
-    phone_number = data.get('phone_number')
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
     otp_code = data.get('otp_code')
     
     if not phone_number or not otp_code:
-        return jsonify({'error': 'Phone number and OTP code are required'}), 400
+        return jsonify({'error': 'Phone number and verification code are required'}), 400
     
     # Find pending verification
     verification = Verification.query.filter_by(
@@ -142,23 +171,36 @@ def login():
     pin = data.get('pin')
     
     if not phone_number or not pin:
-        return jsonify({'error': 'Phone number and PIN are required'}), 400
+        return jsonify({'error': 'Please enter both phone number and PIN'}), 400
+    
+    # Normalize phone number
+    normalized_phone = normalize_phone_number(phone_number)
     
     # Validate phone number format
-    if not phone_number.startswith('+') or len(phone_number) < 10:
-        return jsonify({'error': 'Invalid phone number format'}), 400
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format'}), 400
     
-    # Find user
-    user = User.query.filter_by(phone_number=phone_number).first()
+    # Find user - try both the normalized format and original format
+    user = User.query.filter_by(phone_number=normalized_phone).first()
     
-    if not user or not verify_pin(pin, user.pin_hash):
-        return jsonify({'error': 'Invalid phone number or PIN'}), 401
+    # If not found with normalized phone, try to find with +254 format (for existing users)
+    if not user and phone_number.startswith('07'):
+        legacy_phone = '+254' + phone_number[1:]  # Convert 07xxx to +254xxx
+        user = User.query.filter_by(phone_number=legacy_phone).first()
+        print(f"Trying legacy format: {legacy_phone}")
+    
+    if not user:
+        print(f"No user found for: {phone_number} or {normalized_phone}")
+        return jsonify({'error': 'No account found with this phone number. Please register first.'}), 404
+    
+    if not verify_pin(pin, user.pin_hash):
+        return jsonify({'error': 'Incorrect PIN. Please try again.'}), 401
     
     if not user.is_verified:
-        return jsonify({'error': 'Please verify your phone number first'}), 401
+        return jsonify({'error': 'Please verify your phone number first. Check for SMS with verification code.'}), 401
     
     if not user.is_active:
-        return jsonify({'error': 'Account is deactivated'}), 401
+        return jsonify({'error': 'Your account has been deactivated. Please contact support.'}), 401
     
     # Get device info from request headers
     device_info = request.headers.get('User-Agent', 'Unknown Device')
