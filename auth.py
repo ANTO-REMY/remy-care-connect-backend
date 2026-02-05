@@ -27,6 +27,18 @@ def register():
     pin = data['pin']
     role = data['role']
     
+    # Validate phone number format (basic validation)
+    if not phone_number.startswith('+') or len(phone_number) < 10:
+        return jsonify({'error': 'Invalid phone number format. Must include country code (e.g., +254...)'}), 400
+    
+    # Validate PIN length and format
+    if len(pin) < 4 or len(pin) > 8:
+        return jsonify({'error': 'PIN must be between 4 and 8 characters'}), 400
+    
+    # Validate name
+    if len(name.strip()) < 2:
+        return jsonify({'error': 'Name must be at least 2 characters long'}), 400
+    
     # Validate role
     if role not in ['mother', 'chw', 'nurse']:
         return jsonify({'error': 'Invalid role. Must be mother, chw, or nurse'}), 400
@@ -131,6 +143,10 @@ def login():
     
     if not phone_number or not pin:
         return jsonify({'error': 'Phone number and PIN are required'}), 400
+    
+    # Validate phone number format
+    if not phone_number.startswith('+') or len(phone_number) < 10:
+        return jsonify({'error': 'Invalid phone number format'}), 400
     
     # Find user
     user = User.query.filter_by(phone_number=phone_number).first()

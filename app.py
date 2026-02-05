@@ -31,7 +31,7 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    CORS(app, origins=["http://localhost:8080"], supports_credentials=True)
+    CORS(app, origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"], supports_credentials=True)
 
     from routes.routes_health import bp as health_bp
     from auth import bp as auth_bp
