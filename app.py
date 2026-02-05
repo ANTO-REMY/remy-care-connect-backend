@@ -2,11 +2,9 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
-from flask_session import Session
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
-import redis
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -14,7 +12,6 @@ load_dotenv()
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
-sess = Session()
 
 def create_app():
     app = Flask(__name__)
@@ -29,26 +26,17 @@ def create_app():
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 86400  # 24 hours in seconds
     app.config['JWT_REFRESH_TOKEN_EXPIRES'] = 2592000  # 30 days in seconds
     
-    # Session configuration for hybrid auth
-    # Create Redis client with decode_responses for string handling
-    redis_client = redis.StrictRedis.from_url(
-        os.getenv('REDIS_URL', 'redis://localhost:6379'),
-        decode_responses=True
-    )
-    app.config['SESSION_TYPE'] = 'redis'
-    app.config['SESSION_REDIS'] = redis_client
-    app.config['SESSION_PERMANENT'] = False
-    app.config['SESSION_USE_SIGNER'] = True
-    app.config['SESSION_KEY_PREFIX'] = 'remy_care:'
+    # Session configuration - DISABLED for JWT-only API
+    # JWT handles authentication, no sessions needed
+    # If you need sessions in future, configure properly with msgpack serializer
+    app.config['SESSION_TYPE'] = 'null'  # Disable sessions
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'remy-care-connect-secret-key-change-in-production')
-    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_HTTPONLY'] = True
     
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    sess.init_app(app)
+    # sess.init_app(app)  # Disabled - using JWT-only authentication
     CORS(app, origins=["http://localhost:8080"], supports_credentials=True)
 
     from routes.routes_health import bp as health_bp
