@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request, jsonify, session, current_app
+from flask import request, jsonify, current_app
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, create_access_token, create_refresh_token
 from models import User, UserSession, db
 import hashlib
@@ -67,31 +67,23 @@ def validate_session_token(session_token):
     return user_session.user
 
 def require_auth(f):
-    """Decorator for hybrid authentication - supports both JWT and session"""
+    """Decorator for JWT authentication"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user = None
-        auth_method = None
-        
-        # Try JWT authentication first
+        # JWT authentication only
         try:
             verify_jwt_in_request()
-            user_id = get_jwt_identity()
+            user_id_str = get_jwt_identity()
+            user_id = int(user_id_str)  # Convert back to int
             user = User.query.get(user_id)
-            auth_method = 'jwt'
-        except:
-            # Try session authentication
-            session_token = session.get('session_token')
-            if session_token:
-                user = validate_session_token(session_token)
-                auth_method = 'session'
+        except Exception as e:
+            return jsonify({'error': 'Invalid or expired token'}), 401
         
         if not user or not user.is_active or not user.is_verified:
             return jsonify({'error': 'Authentication required'}), 401
         
-        # Add user and auth method to request context
+        # Add user to request context
         request.current_user = user
-        request.auth_method = auth_method
         
         return f(*args, **kwargs)
     

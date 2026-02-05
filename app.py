@@ -25,18 +25,12 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'remy-care-connect-jwt-secret-key-change-in-production')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 86400  # 24 hours in seconds
     app.config['JWT_REFRESH_TOKEN_EXPIRES'] = 2592000  # 30 days in seconds
-    
-    # Session configuration - DISABLED for JWT-only API
-    # JWT handles authentication, no sessions needed
-    # If you need sessions in future, configure properly with msgpack serializer
-    app.config['SESSION_TYPE'] = 'null'  # Disable sessions
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'remy-care-connect-secret-key-change-in-production')
     
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    # sess.init_app(app)  # Disabled - using JWT-only authentication
     CORS(app, origins=["http://localhost:8080"], supports_credentials=True)
 
     from routes.routes_health import bp as health_bp

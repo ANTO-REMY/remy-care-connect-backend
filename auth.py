@@ -148,16 +148,12 @@ def login():
     device_info = request.headers.get('User-Agent', 'Unknown Device')
     ip_address = request.remote_addr
     
-    # Create JWT tokens
-    access_token = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    # Create JWT tokens (identity must be string)
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
     
-    # Create session token for hybrid auth
+    # Create session token for database tracking (not Flask session)
     session_token = create_user_session(user.id, device_info, ip_address)
-    
-    # Set session for web clients
-    session['session_token'] = session_token
-    session['user_id'] = user.id
     
     # Update last login
     user.updated_at = datetime.utcnow()
@@ -185,7 +181,7 @@ def refresh():
     if not user or not user.is_active or not user.is_verified:
         return jsonify({'error': 'Invalid user'}), 401
     
-    new_access_token = create_access_token(identity=current_user_id)
+    new_access_token = create_access_token(identity=str(current_user_id))
     
     return jsonify({
         'access_token': new_access_token
