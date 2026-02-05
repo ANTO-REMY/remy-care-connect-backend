@@ -1,11 +1,11 @@
 {
   "info": {
-    "_postman_id": "remy-care-connect-complete-v4",
-    "name": "RemyCareConnect API v4 - Complete Collection",
-    "description": "Complete API collection for RemyCareConnect maternal health management system. Features hybrid authentication (JWT + Session), automatic token handling, comprehensive endpoints for mothers, CHWs, nurses, next of kin, and verification management. Includes both original working endpoints and new auth-based endpoints.",
+    "_postman_id": "remy-care-connect-optimized-v5",
+    "name": "RemyCareConnect API v5 - Optimized & Dynamic",
+    "description": "Optimized Postman collection with dynamic ID tracking, complete request bodies, and intelligent variable management. Register → Verify → Login → Complete Profile workflow with automatic ID extraction for mother, CHW, and nurse profiles. Updated February 2026.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "version": {
-      "major": 4,
+      "major": 5,
       "minor": 0,
       "patch": 0
     }
@@ -82,6 +82,36 @@
     },
     {
       "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_role",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mother_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "chw_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nurse_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "otp_code",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nok_id",
       "value": "",
       "type": "string"
     }
@@ -212,13 +242,18 @@
                   "    pm.environment.set('access_token', jsonData.access_token);",
                   "    pm.environment.set('refresh_token', jsonData.refresh_token);",
                   "    pm.environment.set('user_id', jsonData.user.id);",
+                  "    pm.environment.set('user_role', jsonData.user.role);",
                   "    ",
                   "    // Set token expiry (24 hours from now)",
                   "    const expiry = new Date(Date.now() + 24*60*60*1000);",
                   "    pm.environment.set('token_expiry', expiry.toISOString());",
                   "    ",
-                  "    console.log('Login successful. Tokens stored automatically.');",
-                  "    console.log('Access token expires at: ' + expiry.toISOString());",
+                  "    console.log('✅ Login successful!');",
+                  "    console.log('👤 User: ' + jsonData.user.name + ' (Role: ' + jsonData.user.role + ')');",
+                  "    console.log('🆔 User ID: ' + jsonData.user.id);",
+                  "    console.log('🎫 Token expires: ' + expiry.toISOString());",
+                  "    console.log('');",
+                  "    console.log('➡️  Next step: Complete your profile using the Complete ' + jsonData.user.role.toUpperCase() + ' Profile endpoint');",
                   "}"
                 ]
               }
@@ -401,6 +436,26 @@
       "item": [
         {
           "name": "Complete Mother Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('mother_id', jsonData.mother_id);",
+                  "    console.log('✅ Mother profile completed successfully!');",
+                  "    console.log('🆔 Mother ID: ' + jsonData.mother_id);",
+                  "    console.log('');",
+                  "    console.log('➡️  You can now:');",
+                  "    console.log('   - View profile: GET /mothers/' + jsonData.mother_id);",
+                  "    console.log('   - Update profile: PUT /mothers/' + jsonData.mother_id);",
+                  "    console.log('   - Add Next of Kin');",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -411,7 +466,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2025-12-01\",\n  \"location\": \"Nairobi, Kenya\"\n}",
+              "raw": "{\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-09-20\",\n  \"location\": \"Nairobi\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -423,24 +478,41 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "mothers", "complete-profile"]
             },
-            "description": "Complete mother profile after registration (mothers only)"
+            "description": "Complete mother profile after registration (Mother role only)\n\nRequired fields:\n- dob: Date of birth (YYYY-MM-DD)\n- due_date: Expected delivery date (YYYY-MM-DD)\n- location: City/location\n\nNote: Must be logged in as Mother. Uses your logged-in user_id automatically.\nAutomatically saves mother_id for use in other requests."
           }
         },
         {
-          "name": "Get Mother Profile",
+          "name": "Get My Mother Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    console.log('👤 Name: ' + jsonData.name);",
+                  "    console.log('📅 DOB: ' + jsonData.dob);",
+                  "    console.log('🤰 Due Date: ' + jsonData.due_date);",
+                  "    console.log('📍 Location: ' + jsonData.location);",
+                  "    console.log('📱 Phone: ' + jsonData.phone);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/mothers/1",
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "mothers", "1"]
+              "path": ["api", "v1", "mothers", "{{mother_id}}"]
             },
-            "description": "Get mother profile by ID"
+            "description": "Get mother profile by mother_id\n\nUses {{mother_id}} variable (auto-set after completing profile)"
           }
         },
         {
-          "name": "Update Mother Profile",
+          "name": "Update My Mother Profile",
           "request": {
             "method": "PUT",
             "header": [
@@ -451,7 +523,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Jane Smith\",\n  \"location\": \"Mombasa, Kenya\"\n}",
+              "raw": "{\n  \"full_name\": \"Grace Wanjiku Mwangi\",\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-10-01\",\n  \"location\": \"Kiambu\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -459,24 +531,24 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/mothers/1",
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "mothers", "1"]
+              "path": ["api", "v1", "mothers", "{{mother_id}}"]
             },
-            "description": "Update mother profile"
+            "description": "Update mother profile\n\nAll fields optional:\n- full_name: Updates name in users table too\n- dob: YYYY-MM-DD format\n- due_date: YYYY-MM-DD format  \n- location: City/location\n\nUses {{mother_id}} from environment"
           }
         },
         {
-          "name": "Delete Mother Profile",
+          "name": "Delete Mother Profile (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/mothers/1",
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "mothers", "1"]
+              "path": ["api", "v1", "mothers", "{{mother_id}}"]
             },
-            "description": "Delete mother profile (CHW/Nurse only)"
+            "description": "Delete mother profile (CHW/Nurse only)\n\nDeletes both mother record and associated user account"
           }
         }
       ]
@@ -486,37 +558,27 @@
       "description": "Community Health Worker management endpoints",
       "item": [
         {
-          "name": "Register CHW",
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"full_name\": \"John CHW\",\n  \"phone\": \"+254700000002\",\n  \"license_number\": \"CHW001\",\n  \"location\": \"Nairobi, Kenya\",\n  \"pin\": \"1234\",\n  \"confirm_pin\": \"1234\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/chws/register",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "register"]
-            },
-            "description": "Register a new CHW (original working endpoint)"
-          }
-        },
-        {
           "name": "Complete CHW Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('chw_id', jsonData.chw_id);",
+                  "    console.log('✅ CHW profile completed successfully!');",
+                  "    console.log('🆔 CHW ID: ' + jsonData.chw_id);",
+                  "    console.log('');",
+                  "    console.log('➡️  You can now:');",
+                  "    console.log('   - View profile: GET /chws/' + jsonData.chw_id);",
+                  "    console.log('   - Update profile: PUT /chws/' + jsonData.chw_id);",
+                  "    console.log('   - View assigned mothers: GET /chws/' + jsonData.chw_id + '/mothers');",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -527,7 +589,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"license_number\": \"CHW001\",\n  \"location\": \"Nairobi, Kenya\"\n}",
+              "raw": "{\n  \"license_number\": \"CHW2026001\",\n  \"location\": \"Nairobi Central Health Center\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -539,24 +601,40 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "chws", "complete-profile"]
             },
-            "description": "Complete CHW profile after auth registration (CHW only)"
+            "description": "Complete CHW profile after registration (CHW role only)\n\nRequired fields:\n- license_number: CHW license/registration number\n- location: Work location/health facility\n\nNote: Must be logged in as CHW. Uses your logged-in user_id automatically.\nAutomatically saves chw_id for use in other requests."
           }
         },
         {
-          "name": "Get CHW Profile",
+          "name": "Get My CHW Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    console.log('👤 Name: ' + jsonData.name);",
+                  "    console.log('📋 License: ' + jsonData.license_number);",
+                  "    console.log('📍 Location: ' + jsonData.location);",
+                  "    console.log('📱 Phone: ' + jsonData.phone);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/chws/1",
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "1"]
+              "path": ["api", "v1", "chws", "{{chw_id}}"]
             },
-            "description": "Get CHW profile by ID"
+            "description": "Get CHW profile by chw_id\n\nUses {{chw_id}} variable (auto-set after completing profile)"
           }
         },
         {
-          "name": "Update CHW Profile",
+          "name": "Update My CHW Profile",
           "request": {
             "method": "PUT",
             "header": [
@@ -567,7 +645,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"John Updated\",\n  \"license_number\": \"CHW001-NEW\",\n  \"location\": \"Mombasa, Kenya\"\n}",
+              "raw": "{\n  \"full_name\": \"James Kiprotich Korir\",\n  \"license_number\": \"CHW2026001-RENEWED\",\n  \"location\": \"Nairobi West Health Center\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -575,28 +653,15 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/chws/1",
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "1"]
+              "path": ["api", "v1", "chws", "{{chw_id}}"]
             },
-            "description": "Update CHW profile"
+            "description": "Update CHW profile\n\nAll fields optional:\n- full_name: Updates name in users table too\n- license_number: CHW license\n- location: Work location\n\nUses {{chw_id}} from environment"
           }
         },
         {
-          "name": "Delete CHW Profile",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/chws/1",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "1"]
-            },
-            "description": "Delete CHW profile"
-          }
-        },
-        {
-          "name": "List CHWs",
+          "name": "List All CHWs",
           "request": {
             "method": "GET",
             "header": [],
@@ -605,7 +670,60 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "chws"]
             },
-            "description": "Get list of all CHWs"
+            "description": "Get list of all registered CHWs"
+          }
+        },
+        {
+          "name": "Delete CHW Profile (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "{{chw_id}}"]
+            },
+            "description": "Delete CHW profile and user account"
+          }
+        },
+        {
+          "name": "Get My Assigned Mothers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "{{chw_id}}", "mothers"]
+            },
+            "description": "Get list of mothers assigned to this CHW\n\nUses {{chw_id}} from environment"
+          }
+        },
+        {
+          "name": "Assign Mother to Me",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "chws", "{{chw_id}}", "assign_mother"]
+            },
+            "description": "Assign a mother to this CHW\n\nLimits:\n- Max 2 mothers per CHW\n- Returns error if CHW already has 2 active mothers\n\nUses {{chw_id}} and {{mother_id}} from environment"
           }
         }
       ]
@@ -615,37 +733,27 @@
       "description": "Nurse management endpoints",
       "item": [
         {
-          "name": "Register Nurse",
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Mary Nurse\",\n  \"phone\": \"+254700000003\",\n  \"license_number\": \"RN001\",\n  \"location\": \"Nairobi Hospital\",\n  \"pin\": \"1234\",\n  \"confirm_pin\": \"1234\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/nurses/register",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nurses", "register"]
-            },
-            "description": "Register a new nurse (original working endpoint)"
-          }
-        },
-        {
           "name": "Complete Nurse Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('nurse_id', jsonData.nurse_id);",
+                  "    console.log('✅ Nurse profile completed successfully!');",
+                  "    console.log('🆔 Nurse ID: ' + jsonData.nurse_id);",
+                  "    console.log('');",
+                  "    console.log('➡️  You can now:');",
+                  "    console.log('   - View profile: GET /nurses/' + jsonData.nurse_id);",
+                  "    console.log('   - Update profile: PUT /nurses/' + jsonData.nurse_id);",
+                  "    console.log('   - View escalated cases');",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -656,7 +764,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"license_number\": \"RN001\",\n  \"location\": \"Nairobi Hospital\"\n}",
+              "raw": "{\n  \"license_number\": \"RN2026001\",\n  \"location\": \"Kenyatta National Hospital\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -668,24 +776,40 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "nurses", "complete-profile"]
             },
-            "description": "Complete nurse profile after auth registration (Nurse only)"
+            "description": "Complete nurse profile after registration (Nurse role only)\n\nRequired fields:\n- license_number: Nursing license/registration number\n- location: Hospital/health facility name\n\nNote: Must be logged in as Nurse. Uses your logged-in user_id automatically.\nAutomatically saves nurse_id for use in other requests."
           }
         },
         {
-          "name": "Get Nurse Profile",
+          "name": "Get My Nurse Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    console.log('👤 Name: ' + jsonData.name);",
+                  "    console.log('📋 License: ' + jsonData.license_number);",
+                  "    console.log('🏥 Location: ' + jsonData.location);",
+                  "    console.log('📱 Phone: ' + jsonData.phone);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/nurses/1",
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nurses", "1"]
+              "path": ["api", "v1", "nurses", "{{nurse_id}}"]
             },
-            "description": "Get nurse profile by ID"
+            "description": "Get nurse profile by nurse_id\n\nUses {{nurse_id}} variable (auto-set after completing profile)"
           }
         },
         {
-          "name": "Update Nurse Profile",
+          "name": "Update My Nurse Profile",
           "request": {
             "method": "PUT",
             "header": [
@@ -696,7 +820,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Mary Updated\",\n  \"license_number\": \"RN001-NEW\",\n  \"location\": \"Kenyatta Hospital\"\n}",
+              "raw": "{\n  \"full_name\": \"Mary Akinyi Ochieng\",\n  \"license_number\": \"RN2026001-RENEWED\",\n  \"location\": \"Nairobi Women's Hospital\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -704,28 +828,15 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/nurses/1",
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nurses", "1"]
+              "path": ["api", "v1", "nurses", "{{nurse_id}}"]
             },
-            "description": "Update nurse profile"
+            "description": "Update nurse profile\n\nAll fields optional:\n- full_name: Updates name in users table too\n- license_number: Nursing license\n- location: Hospital/facility\n\nUses {{nurse_id}} from environment"
           }
         },
         {
-          "name": "Delete Nurse Profile",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/nurses/1",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nurses", "1"]
-            },
-            "description": "Delete nurse profile"
-          }
-        },
-        {
-          "name": "List Nurses",
+          "name": "List All Nurses",
           "request": {
             "method": "GET",
             "header": [],
@@ -734,7 +845,20 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "nurses"]
             },
-            "description": "Get list of all nurses"
+            "description": "Get list of all registered nurses"
+          }
+        },
+        {
+          "name": "Delete Nurse Profile (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "nurses", "{{nurse_id}}"]
+            },
+            "description": "Delete nurse profile and user account"
           }
         }
       ]
@@ -744,7 +868,33 @@
       "description": "Next of Kin management for mothers",
       "item": [
         {
-          "name": "Add Next of Kin",
+          "name": "Add My Next of Kin",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Get current user name from environment or use default",
+                  "if (!pm.environment.get('user_name')) {",
+                  "    pm.environment.set('user_name', 'Mother Name');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('nok_id', jsonData.id);",
+                  "    console.log('✅ Next of kin added successfully!');",
+                  "    console.log('🆔 NOK ID: ' + jsonData.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -755,7 +905,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": 1,\n  \"mother_name\": \"Jane Doe\",\n  \"name\": \"John Doe\",\n  \"phone\": \"+254700000004\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
+              "raw": "{\n  \"user_id\": {{mother_id}},\n  \"mother_name\": \"Grace Wanjiku\",\n  \"name\": \"Peter Mwangi\",\n  \"phone\": \"+254745678901\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -767,20 +917,20 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "nextofkin", ""]
             },
-            "description": "Add next of kin for a mother"
+            "description": "Add next of kin for a mother\n\nRequired fields:\n- user_id: Mother's ID (uses {{mother_id}} variable)\n- mother_name: Mother's full name\n- name: Next of kin's full name\n- phone: Contact phone number (+254...)\n- sex: Male/Female\n- relationship: Husband/Wife/Mother/Father/Sister/Brother/Friend/Guardian etc\n\nAutomatically saves nok_id for updates/deletes"
           }
         },
         {
-          "name": "Get Next of Kin",
+          "name": "Get My Next of Kin List",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "raw": "{{base_url}}/api/v1/nextofkin/{{mother_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nextofkin", "1"]
+              "path": ["api", "v1", "nextofkin", "{{mother_id}}"]
             },
-            "description": "Get next of kin by ID"
+            "description": "Get all next of kin records for a mother\n\nReturns array of all NOK for {{mother_id}}"
           }
         },
         {
@@ -795,7 +945,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"John Updated\",\n  \"phone\": \"+254700000005\",\n  \"relationship\": \"Spouse\"\n}",
+              "raw": "{\n  \"name\": \"Peter Mwangi Kariuki\",\n  \"phone\": \"+254745678999\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Spouse\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -803,11 +953,11 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nextofkin", "1"]
+              "path": ["api", "v1", "nextofkin", "{{nok_id}}"]
             },
-            "description": "Update next of kin information"
+            "description": "Update next of kin record\n\nAll fields optional:\n- name: NOK full name\n- phone: Contact number\n- sex: Male/Female\n- relationship: Relationship type\n\nUses {{nok_id}} from environment (set when adding NOK)"
           }
         },
         {
@@ -816,18 +966,18 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/nextofkin/1",
+              "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "nextofkin", "1"]
+              "path": ["api", "v1", "nextofkin", "{{nok_id}}"]
             },
-            "description": "Delete next of kin record"
+            "description": "Delete next of kin record\n\nUses {{nok_id}} from environment"
           }
         }
       ]
     },
     {
       "name": "Verifications",
-      "description": "Phone verification management",
+      "description": "Phone verification and OTP management",
       "item": [
         {
           "name": "Get Verification Status",
@@ -835,15 +985,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/verifications/+254700000001",
+              "raw": "{{base_url}}/api/v1/verifications/+254712345678",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "verifications", "+254700000001"]
+              "path": ["api", "v1", "verifications", "+254712345678"]
             },
-            "description": "Check verification status for a phone number"
+            "description": "Check verification status for a specific phone number\n\nReplace phone number in URL with the number to check"
           }
         },
         {
-          "name": "List All Verifications",
+          "name": "List All Verifications (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -852,82 +1002,27 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "verifications"]
             },
-            "description": "Get all verification records (admin only)"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Educational Materials",
-      "description": "Educational material management endpoints",
-      "item": [
-        {
-          "name": "Get Educational Material",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/educational_material/1",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "educational_material", "1"]
-            },
-            "description": "Get educational material by ID"
-          }
-        }
-      ]
-    },
-    {
-      "name": "CHW Assignments",
-      "description": "CHW-Mother assignment management endpoints",
-      "item": [
-        {
-          "name": "Get Assigned Mothers",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/chws/1/mothers",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "1", "mothers"]
-            },
-            "description": "Get mothers assigned to a CHW"
+            "description": "Get all verification records\n\nUseful for checking OTP codes in development"
           }
         },
         {
-          "name": "Assign Mother to CHW",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
+          "name": "Send OTP Directly",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.otp_code) {",
+                  "        pm.environment.set('otp_code', jsonData.otp_code);",
+                  "        console.log('✅ OTP sent: ' + jsonData.otp_code);",
+                  "    }",
+                  "}"
+                ]
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"mother_id\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/chws/1/assign_mother",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "chws", "1", "assign_mother"]
-            },
-            "description": "Assign a mother to a CHW (max 2 mothers per CHW)"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Phone Verification System",
-      "description": "Direct phone verification endpoints (separate from auth)",
-      "item": [
-        {
-          "name": "Send OTP",
+            }
+          ],
           "request": {
             "auth": {
               "type": "noauth"
@@ -941,7 +1036,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+254700000001\"\n}",
+              "raw": "{\n  \"phone\": \"+254712345678\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -953,11 +1048,11 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "verifications", "send"]
             },
-            "description": "Send OTP to phone number for verification"
+            "description": "Send OTP to phone number for standalone verification\n\n(Separate from registration flow)"
           }
         },
         {
-          "name": "Verify OTP Code",
+          "name": "Verify OTP Directly",
           "request": {
             "auth": {
               "type": "noauth"
@@ -971,7 +1066,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+254700000001\",\n  \"code\": \"123456\"\n}",
+              "raw": "{\n  \"phone\": \"+254712345678\",\n  \"code\": \"{{otp_code}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -983,7 +1078,26 @@
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "verifications", "verify"]
             },
-            "description": "Verify OTP code for phone number"
+            "description": "Verify OTP code for standalone phone verification"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Educational Materials",
+      "description": "Educational content and materials",
+      "item": [
+        {
+          "name": "Get Educational Material by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/educational_material/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "educational_material", "1"]
+            },
+            "description": "Get educational material by ID\n\nReplace '1' with actual material ID"
           }
         }
       ]
