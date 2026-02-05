@@ -30,12 +30,19 @@ def create_app():
     app.config['JWT_REFRESH_TOKEN_EXPIRES'] = 2592000  # 30 days in seconds
     
     # Session configuration for hybrid auth
+    # Create Redis client with decode_responses for string handling
+    redis_client = redis.StrictRedis.from_url(
+        os.getenv('REDIS_URL', 'redis://localhost:6379'),
+        decode_responses=True
+    )
     app.config['SESSION_TYPE'] = 'redis'
-    app.config['SESSION_REDIS'] = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
+    app.config['SESSION_REDIS'] = redis_client
     app.config['SESSION_PERMANENT'] = False
     app.config['SESSION_USE_SIGNER'] = True
     app.config['SESSION_KEY_PREFIX'] = 'remy_care:'
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'remy-care-connect-secret-key-change-in-production')
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
     
     # Initialize extensions
     db.init_app(app)
