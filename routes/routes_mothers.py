@@ -52,6 +52,8 @@ def get_mother_profile(mother_id):
         "mother_id": mother.id,
         "user_id": user.id,
         "name": mother.mother_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "dob": mother.dob.strftime('%Y-%m-%d'),
         "due_date": mother.due_date.strftime('%Y-%m-%d'),
         "location": mother.location,

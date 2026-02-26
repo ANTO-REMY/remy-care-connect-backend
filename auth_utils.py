@@ -5,7 +5,7 @@ from models import User, UserSession, db
 import hashlib
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 def generate_otp():
@@ -27,16 +27,16 @@ def create_session_token():
 def create_user_session(user_id, device_info=None, ip_address=None):
     """Create a new user session in database"""
     session_token = create_session_token()
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
     user_session = UserSession(
         user_id=user_id,
         session_token=session_token,
         device_info=device_info,
         ip_address=ip_address,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         expires_at=expires_at,
-        last_activity=datetime.utcnow()
+        last_activity=datetime.now(timezone.utc)
     )
     
     db.session.add(user_session)
@@ -55,13 +55,13 @@ def validate_session_token(session_token):
         return None
     
     # Check if session is expired
-    if user_session.expires_at < datetime.utcnow():
+    if user_session.expires_at < datetime.now(timezone.utc):
         user_session.is_active = False
         db.session.commit()
         return None
     
     # Update last activity
-    user_session.last_activity = datetime.utcnow()
+    user_session.last_activity = datetime.now(timezone.utc)
     db.session.commit()
     
     return user_session.user

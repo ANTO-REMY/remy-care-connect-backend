@@ -83,6 +83,27 @@ def complete_nurse_profile():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@bp.route('/nurses/profile', methods=['GET'])
+@require_auth
+@require_role('nurse')
+def get_current_nurse_profile():
+    """Get current nurse's profile based on JWT token"""
+    user = get_current_user()
+    nurse = Nurse.query.filter_by(user_id=user.id).first()
+    if not nurse:
+        return jsonify({"error": "Nurse profile not found."}), 404
+    return jsonify({
+        "id": nurse.id,
+        "user_id": user.id,
+        "name": nurse.nurse_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone_number": user.phone_number,
+        "license_number": nurse.license_number,
+        "location": nurse.location,
+        "created_at": nurse.created_at.isoformat()
+    }), 200
+
 @bp.route('/nurses/<int:nurse_id>', methods=['GET'])
 def get_nurse(nurse_id):
     nurse = Nurse.query.get(nurse_id)

@@ -83,6 +83,27 @@ def complete_chw_profile():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@bp.route('/chws/profile', methods=['GET'])
+@require_auth
+@require_role('chw')
+def get_current_chw_profile():
+    """Get current CHW's profile based on JWT token"""
+    user = get_current_user()
+    chw = CHW.query.filter_by(user_id=user.id).first()
+    if not chw:
+        return jsonify({"error": "CHW profile not found."}), 404
+    return jsonify({
+        "id": chw.id,
+        "user_id": user.id,
+        "name": chw.chw_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone_number": user.phone_number,
+        "license_number": chw.license_number,
+        "location": chw.location,
+        "created_at": chw.created_at.isoformat()
+    }), 200
+
 @bp.route('/chws/<int:chw_id>', methods=['GET'])
 def get_chw(chw_id):
     chw = CHW.query.get(chw_id)

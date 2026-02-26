@@ -5,7 +5,7 @@ from datetime import datetime
 
 bp = Blueprint('nextofkin', __name__)
 
-@bp.route('/nextofkin/', methods=['POST'])
+@bp.route('/nextofkin', methods=['POST'])
 @require_auth
 def create_next_of_kin():
     user = get_current_user()
@@ -71,8 +71,3 @@ def delete_next_of_kin(kin_id):
     db.session.delete(kin)
     db.session.commit()
     return jsonify({'message': 'Next of kin deleted'}), 200
-
-@bp.route('/logout', methods=['POST'])
-def logout():
-    # For stateless APIs, client should just delete token. Here for completeness.
-    return jsonify({'message': 'Logged out successfully.'}), 200

@@ -1,11 +1,11 @@
 from flask import Blueprint, request, jsonify, session
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from models import db, User, Verification, Mother, CHW, Nurse
+from models import db, User, Verification, Mother, CHW, Nurse, Ward
 from auth_utils import (
     generate_otp, hash_pin, verify_pin, create_user_session, 
     validate_session_token, require_auth, get_current_user, logout_user_sessions
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
 import random
 import re
@@ -52,6 +52,13 @@ def register():
         if not data.get(field):
             return jsonify({'error': f'{field} is required'}), 400
     
+    # Additional validation for mothers
+    if data.get('role') == 'mother':
+        mother_fields = ['dob', 'due_date', 'ward_id']
+        for field in mother_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} is required for mother registration'}), 400
+    
     phone_number = normalize_phone_number(data['phone_number'])
     first_name = data['first_name'].strip()
     last_name  = data['last_name'].strip()
@@ -59,14 +66,14 @@ def register():
     role = data['role']
     email = data.get('email', '').strip() or None   # optional
     license_number = data.get('license_number', '').strip()
-    location = data.get('location', '').strip()
+    ward_id = data.get('ward_id')
 
-    # CHW and Nurse require license_number and location
+    # CHW and Nurse require license_number and ward_id
     if role in ('chw', 'nurse'):
         if not license_number:
             return jsonify({'error': 'license_number is required for CHW/Nurse registration'}), 400
-        if not location:
-            return jsonify({'error': 'location is required for CHW/Nurse registration'}), 400
+        if not ward_id:
+            return jsonify({'error': 'ward_id is required for CHW/Nurse registration'}), 400
     
     # Validate phone number format
     if not validate_phone_number(phone_number):
@@ -101,8 +108,8 @@ def register():
             pin_hash=hash_pin(pin),
             role=role,
             is_verified=False,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         
         db.session.add(user)
@@ -115,8 +122,8 @@ def register():
             phone_number=phone_number,
             code=otp_code,
             status='pending',
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(minutes=10)
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)
         )
         
         db.session.add(verification)
@@ -140,83 +147,125 @@ def register():
 
 @bp.route('/auth/verify-otp', methods=['POST'])
 def verify_otp():
-    """Verify OTP and activate user account"""
+    """Verify OTP and activate user account, then create the role-specific profile."""
     data = request.get_json()
-    
+
     phone_number = normalize_phone_number(data.get('phone_number', ''))
     otp_code = data.get('otp_code')
-    
+
     if not phone_number or not otp_code:
         return jsonify({'error': 'Phone number and verification code are required'}), 400
-    
+
     # Find pending verification
     verification = Verification.query.filter_by(
         phone_number=phone_number,
         code=otp_code,
         status='pending'
     ).first()
-    
+
     if not verification:
-        return jsonify({'error': 'Invalid OTP code'}), 400
-    
+        return jsonify({'error': 'Invalid verification code. Please check the code and try again.'}), 400
+
     # Check if OTP is expired
-    if verification.expires_at < datetime.utcnow():
+    if verification.expires_at < datetime.now(timezone.utc):
         verification.status = 'expired'
         db.session.commit()
-        return jsonify({'error': 'OTP code has expired'}), 400
-    
-    # Verify and activate user
+        return jsonify({'error': 'Verification code has expired. Please request a new one.'}), 400
+
     user = User.query.get(verification.user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
-    
+
+    now = datetime.now(timezone.utc)
+    profile_obj = None  # will hold the role-specific object to add
+
+    # ── Step 1: Validate role-specific fields and build the profile object ──
+    # (we do this BEFORE touching the session so early-return leaves DB clean)
+    if user.role == 'chw' and not user.chw:
+        license_number = data.get('license_number', '').strip()
+        ward_id        = data.get('ward_id')
+        if not license_number:
+            return jsonify({'error': 'license_number is required to complete CHW registration'}), 400
+        if not ward_id:
+            return jsonify({'error': 'ward_id is required to complete CHW registration'}), 400
+        ward = Ward.query.get(int(ward_id))
+        if not ward:
+            return jsonify({'error': f'Ward with id {ward_id} not found'}), 400
+        profile_obj = CHW(
+            user_id=user.id,
+            chw_name=user.name,
+            license_number=license_number,
+            location=f"{ward.sub_county.name} > {ward.name}",
+            ward_id=ward.id,
+            sub_county_id=ward.sub_county_id,
+            created_at=now
+        )
+
+    elif user.role == 'nurse' and not user.nurse:
+        license_number = data.get('license_number', '').strip()
+        ward_id        = data.get('ward_id')
+        if not license_number:
+            return jsonify({'error': 'license_number is required to complete Nurse registration'}), 400
+        if not ward_id:
+            return jsonify({'error': 'ward_id is required to complete Nurse registration'}), 400
+        ward = Ward.query.get(int(ward_id))
+        if not ward:
+            return jsonify({'error': f'Ward with id {ward_id} not found'}), 400
+        profile_obj = Nurse(
+            user_id=user.id,
+            nurse_name=user.name,
+            license_number=license_number,
+            location=f"{ward.sub_county.name} > {ward.name}",
+            ward_id=ward.id,
+            sub_county_id=ward.sub_county_id,
+            created_at=now
+        )
+
+    elif user.role == 'mother' and not user.mother:
+        dob_str      = data.get('dob', '').strip()
+        due_date_str = data.get('due_date', '').strip()
+        ward_id      = data.get('ward_id')
+        if not dob_str:
+            return jsonify({'error': 'Date of birth (dob) is required to complete mother registration'}), 400
+        if not due_date_str:
+            return jsonify({'error': 'Due date is required to complete mother registration'}), 400
+        if not ward_id:
+            return jsonify({'error': 'ward_id is required to complete mother registration'}), 400
+        try:
+            dob_date = datetime.strptime(dob_str, '%Y-%m-%d').date()
+            due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Please use YYYY-MM-DD (e.g. 1995-06-15).'}), 400
+        ward = Ward.query.get(int(ward_id))
+        if not ward:
+            return jsonify({'error': f'Ward with id {ward_id} not found'}), 400
+        profile_obj = Mother(
+            user_id=user.id,
+            mother_name=user.name,
+            dob=dob_date,
+            due_date=due_date,
+            location=f"{ward.sub_county.name} > {ward.name}",
+            ward_id=ward.id,
+            sub_county_id=ward.sub_county_id,
+            created_at=now
+        )
+
+    # ── Step 2: Mark user verified and commit everything atomically ──
     user.is_verified = True
-    user.updated_at = datetime.utcnow()
+    user.updated_at  = now
     verification.status = 'verified'
 
-    # --- Auto-create the role-specific profile if it doesn't exist yet ---
-    now = datetime.utcnow()
+    if profile_obj is not None:
+        db.session.add(profile_obj)
+
     try:
-        if user.role == 'chw' and not user.chw:
-            license_number = data.get('license_number', '').strip()
-            location = data.get('location', '').strip()
-            chw = CHW(
-                user_id=user.id,
-                chw_name=user.name,
-                license_number=license_number or 'PENDING',
-                location=location or 'PENDING',
-                created_at=now
-            )
-            db.session.add(chw)
+        db.session.commit()
+    except Exception as commit_error:
+        db.session.rollback()
+        print(f"[ERROR] verify_otp commit failed for user {user.id}: {commit_error}")
+        return jsonify({'error': 'Failed to complete registration. Please try again.'}), 500
 
-        elif user.role == 'nurse' and not user.nurse:
-            license_number = data.get('license_number', '').strip()
-            location = data.get('location', '').strip()
-            nurse = Nurse(
-                user_id=user.id,
-                nurse_name=user.name,
-                license_number=license_number or 'PENDING',
-                location=location or 'PENDING',
-                created_at=now
-            )
-            db.session.add(nurse)
-
-        elif user.role == 'mother' and not user.mother:
-            # dob / due_date are nullable — mother completes profile from dashboard
-            mother = Mother(
-                user_id=user.id,
-                mother_name=user.name,
-                created_at=now
-            )
-            db.session.add(mother)
-
-    except Exception as profile_error:
-        # Don't block verification if profile creation fails — log and continue
-        print(f"[WARN] Could not auto-create role profile for user {user.id}: {profile_error}")
-
-    db.session.commit()
-
-    # Determine the created profile id for the response
+    # ── Step 3: Return the profile_id so frontend can cache it ──
     profile_id = None
     if user.role == 'chw' and user.chw:
         profile_id = user.chw.id
@@ -282,7 +331,7 @@ def login():
     session_token = create_user_session(user.id, device_info, ip_address)
     
     # Update last login
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     
     return jsonify({
@@ -418,8 +467,8 @@ def resend_otp():
         phone_number=phone_number,
         code=otp_code,
         status='pending',
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(minutes=10)
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)
     )
     
     db.session.add(verification)

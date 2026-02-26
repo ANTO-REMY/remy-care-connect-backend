@@ -1,12 +1,12 @@
 {
     "info": {
         "_postman_id": "remy-care-connect-v6",
-        "name": "RemyCareConnect API v6 - first_name / last_name / email",
-        "description": "Updated February 2026. Reflects DB migration 010: users.name split into first_name + last_name, email column added. All register/update payloads updated. Profile update routes accept both full_name (auto-split) and individual first_name/last_name fields.",
+        "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments",
+        "description": "Updated February 2026. Reflects DB migration 018: added Escalations (CHW→Nurse case flow), Mother-CHW Assignments (full CRUD + nurse team view), and Appointment Schedule (full CRUD with date filtering). Previous v6 changes: users.name split into first_name + last_name, email column added.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         "version": {
             "major": 6,
-            "minor": 0,
+            "minor": 1,
             "patch": 0
         }
     },
@@ -104,6 +104,21 @@
         },
         {
             "key": "nok_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "assignment_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "escalation_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "appointment_id",
             "value": "",
             "type": "string"
         }
@@ -901,7 +916,7 @@
                                 "assign_mother"
                             ]
                         },
-                        "description": "Assign a mother to this CHW. Max 2 mothers per CHW. Uses {{chw_id}} and {{mother_id}} from environment."
+                        "description": "Assign a mother to this CHW. Max 20 active mothers per CHW. Uses {{chw_id}} and {{mother_id}} from environment."
                     }
                 }
             ]
@@ -1488,6 +1503,374 @@
                             ]
                         },
                         "description": "Deactivate (soft-delete) the current user's active profile photo. The file and DB record are kept for audit purposes but the photo is no longer returned as active."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Assignments (Mother-CHW)",
+            "description": "Mother-CHW assignment management. A CHW can be assigned multiple mothers (up to 20 active). Nurses can view all CHWs assigned under them.",
+            "item": [
+                {
+                    "name": "Assign Mother to CHW",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "if (pm.response.code === 201) {",
+                                    "    const d = pm.response.json();",
+                                    "    pm.environment.set('assignment_id', d.assignment_id);",
+                                    "    console.log('✅ Mother assigned. Assignment ID: ' + d.assignment_id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "chws", "{{chw_id}}", "assign_mother"]
+                        },
+                        "description": "Assign a mother to a CHW. If an inactive assignment already exists for this CHW+Mother pair it is reactivated instead of creating a duplicate. Max 20 active assignments per CHW."
+                    }
+                },
+                {
+                    "name": "Get CHW Assigned Mothers",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "chws", "{{chw_id}}", "mothers"]
+                        },
+                        "description": "List all mothers assigned to a specific CHW (active assignments only)."
+                    }
+                },
+                {
+                    "name": "List All Assignments",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/assignments?status=active",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "assignments"],
+                            "query": [
+                                { "key": "chw_id", "value": "{{chw_id}}", "disabled": true },
+                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
+                                { "key": "nurse_id", "value": "{{nurse_id}}", "disabled": true },
+                                { "key": "status", "value": "active" }
+                            ]
+                        },
+                        "description": "List assignments with optional filters: chw_id, mother_id, nurse_id, status (active/inactive)."
+                    }
+                },
+                {
+                    "name": "Update Assignment Status",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"inactive\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}/status",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "assignments", "{{assignment_id}}", "status"]
+                        },
+                        "description": "Set status to 'active' or 'inactive'. Re-activating counts toward the 20-mother limit."
+                    }
+                },
+                {
+                    "name": "Delete Assignment",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "assignments", "{{assignment_id}}"]
+                        },
+                        "description": "Hard-delete an assignment record. Use status PATCH to deactivate instead where audit trail is needed."
+                    }
+                },
+                {
+                    "name": "Get Nurse Assignments (CHW Team)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}/assignments",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "nurses", "{{nurse_id}}", "assignments"]
+                        },
+                        "description": "List all CHWs (and their assigned mothers) that are in the same ward as the nurse."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Escalations",
+            "description": "Escalation management — CHW raises a case to a nurse. Tracks status through open → in_progress → resolved/rejected.",
+            "item": [
+                {
+                    "name": "Create Escalation",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "if (pm.response.code === 201) {",
+                                    "    const d = pm.response.json();",
+                                    "    pm.environment.set('escalation_id', d.id);",
+                                    "    console.log('✅ Escalation created. ID: ' + d.id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"chw_id\": {{chw_id}},\n  \"nurse_id\": {{nurse_id}},\n  \"mother_id\": {{mother_id}},\n  \"case_description\": \"Mother is experiencing severe headaches and elevated blood pressure.\",\n  \"issue_type\": \"hypertension\",\n  \"priority\": \"high\",\n  \"notes\": \"Advised rest and hydration. BP reading: 150/95.\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations"]
+                        },
+                        "description": "Create a new escalation. Required: chw_id, nurse_id, mother_id, case_description. Optional: issue_type, priority (low/medium/high/critical, default medium), notes."
+                    }
+                },
+                {
+                    "name": "List Escalations",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations?status=open",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations"],
+                            "query": [
+                                { "key": "chw_id", "value": "{{chw_id}}", "disabled": true },
+                                { "key": "nurse_id", "value": "{{nurse_id}}", "disabled": true },
+                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
+                                { "key": "status", "value": "open" },
+                                { "key": "priority", "value": "high", "disabled": true }
+                            ]
+                        },
+                        "description": "List escalations with optional filters: chw_id, nurse_id, mother_id, status (open/in_progress/resolved/rejected), priority (low/medium/high/critical)."
+                    }
+                },
+                {
+                    "name": "Get Escalation by ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
+                        }
+                    }
+                },
+                {
+                    "name": "Update Escalation Status",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Reviewing the case now. Scheduled call with CHW.\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}/status",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations", "{{escalation_id}}", "status"]
+                        },
+                        "description": "Update escalation status. Valid transitions: open → in_progress → resolved/rejected. Setting status to 'resolved' or 'rejected' auto-sets resolved_at timestamp. notes field is optional."
+                    }
+                },
+                {
+                    "name": "Update Escalation (Partial)",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"priority\": \"critical\",\n  \"notes\": \"Condition has worsened. Patient needs immediate attention.\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
+                        },
+                        "description": "Partially update an escalation record. Editable fields: case_description, issue_type, priority, notes. Status changes should use the /status endpoint."
+                    }
+                },
+                {
+                    "name": "Delete Escalation",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
+                        },
+                        "description": "Hard-delete an escalation. Only allowed when status is 'open' to prevent losing resolved case history."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Appointments",
+            "description": "Appointment schedule management. Mothers, CHWs and Nurses can schedule and track visits. Supports date range filtering and recurring appointments.",
+            "item": [
+                {
+                    "name": "Create Appointment",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "if (pm.response.code === 201) {",
+                                    "    const d = pm.response.json();",
+                                    "    pm.environment.set('appointment_id', d.id);",
+                                    "    console.log('✅ Appointment created. ID: ' + d.id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"mother_id\": {{mother_id}},\n  \"health_worker_id\": {{chw_id}},\n  \"scheduled_time\": \"2026-03-15T10:00:00\",\n  \"appointment_type\": \"prenatal_checkup\",\n  \"location\": \"Nairobi Central Health Center\",\n  \"notes\": \"Routine 28-week checkup. Bring previous scan results.\",\n  \"recurrence\": \"none\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments"]
+                        },
+                        "description": "Create a new appointment. Required: mother_id, health_worker_id, scheduled_time (ISO 8601). Optional: appointment_type, location, notes, recurrence (none/weekly/biweekly/monthly, default none)."
+                    }
+                },
+                {
+                    "name": "List Appointments",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments?status=scheduled",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments"],
+                            "query": [
+                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
+                                { "key": "health_worker_id", "value": "{{chw_id}}", "disabled": true },
+                                { "key": "status", "value": "scheduled" },
+                                { "key": "from", "value": "2026-03-01", "disabled": true },
+                                { "key": "to", "value": "2026-03-31", "disabled": true }
+                            ]
+                        },
+                        "description": "List appointments with optional filters: mother_id, health_worker_id, status (scheduled/completed/cancelled/rescheduled), from (YYYY-MM-DD), to (YYYY-MM-DD)."
+                    }
+                },
+                {
+                    "name": "Get Appointment by ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
+                        }
+                    }
+                },
+                {
+                    "name": "Update Appointment",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"scheduled_time\": \"2026-03-16T11:00:00\",\n  \"location\": \"Nairobi West Health Center\",\n  \"notes\": \"Rescheduled due to public holiday.\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
+                        },
+                        "description": "Partially update appointment fields: scheduled_time, appointment_type, location, notes, recurrence, health_worker_id."
+                    }
+                },
+                {
+                    "name": "Update Appointment Status",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"completed\",\n  \"notes\": \"Checkup completed successfully. All vitals normal.\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/status",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "status"]
+                        },
+                        "description": "Update appointment status. Valid values: scheduled, completed, cancelled, rescheduled."
+                    }
+                },
+                {
+                    "name": "Delete Appointment",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
+                        },
+                        "description": "Hard-delete an appointment. Prefer updating status to 'cancelled' to preserve history."
                     }
                 }
             ]

@@ -1,5 +1,21 @@
 from app import db
 
+# ── Administrative location models (Nairobi County) ──────────────────────────
+
+class SubCounty(db.Model):
+    __tablename__ = 'sub_counties'
+    id   = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), unique=True, nullable=False)
+    wards = db.relationship('Ward', backref='sub_county', lazy=True)
+
+class Ward(db.Model):
+    __tablename__ = 'wards'
+    id            = db.Column(db.Integer, primary_key=True)
+    name          = db.Column(db.String(128), nullable=False)
+    sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
+
+# ── User models ───────────────────────────────────────────────────────────────
+
 # User model: stores all users (mothers, CHWs, nurses) with authentication info
 class User(db.Model):
     __tablename__ = 'users'
@@ -42,10 +58,12 @@ class Mother(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
     mother_name = db.Column(db.String(128), nullable=False)
-    dob = db.Column(db.Date, nullable=True)       # filled when mother completes profile
-    due_date = db.Column(db.Date, nullable=True)   # filled when mother completes profile
-    location = db.Column(db.String(128), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False)
+    dob = db.Column(db.Date, nullable=False)       # filled during registration
+    due_date = db.Column(db.Date, nullable=False)   # filled during registration
+    location      = db.Column(db.String(128), nullable=True)   # derived from ward name
+    ward_id       = db.Column(db.Integer, db.ForeignKey('wards.id'), nullable=False)
+    sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
+    created_at    = db.Column(db.DateTime, nullable=False)
 
 # CHW model: profile for community health workers, linked to User
 class CHW(db.Model):
@@ -54,8 +72,10 @@ class CHW(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
     chw_name = db.Column(db.String(128), nullable=False)
     license_number = db.Column(db.String(64), nullable=False)
-    location = db.Column(db.String(128), nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False)
+    location      = db.Column(db.String(128), nullable=True)   # derived from ward name
+    ward_id       = db.Column(db.Integer, db.ForeignKey('wards.id'), nullable=False)
+    sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
+    created_at    = db.Column(db.DateTime, nullable=False)
 
 # Nurse model: profile for nurses, linked to User
 class Nurse(db.Model):
@@ -64,8 +84,10 @@ class Nurse(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
     nurse_name = db.Column(db.String(128), nullable=False)
     license_number = db.Column(db.String(64), nullable=False)
-    location = db.Column(db.String(128), nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False)
+    location      = db.Column(db.String(128), nullable=True)   # derived from ward name
+    ward_id       = db.Column(db.Integer, db.ForeignKey('wards.id'), nullable=False)
+    sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
+    created_at    = db.Column(db.DateTime, nullable=False)
 
 # Verification model: stores OTP codes for phone verification, linked to User if exists
 class Verification(db.Model):
@@ -97,17 +119,56 @@ class ProfilePhoto(db.Model):
 class AppointmentSchedule(db.Model):
     __tablename__ = 'appointment_schedule'
     id = db.Column(db.Integer, primary_key=True)
-    mother_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    health_worker_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    scheduled_time = db.Column(db.DateTime, nullable=False)
-    recurrence_rule = db.Column(db.String)
-    recurrence_end = db.Column(db.DateTime)
-    status = db.Column(db.Enum('scheduled', 'completed', 'canceled', name='appointment_status'), nullable=False)
-    escalated = db.Column(db.Boolean, default=False)
-    escalation_reason = db.Column(db.Text)
-    notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, nullable=False)
-    updated_at = db.Column(db.DateTime, nullable=False)
+    # FK to users.id — both mother and health worker are users
+    mother_id          = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    health_worker_id   = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    scheduled_time     = db.Column(db.DateTime, nullable=False)
+    recurrence_rule    = db.Column(db.String)
+    recurrence_end     = db.Column(db.DateTime)
+    status             = db.Column(db.Enum('scheduled', 'completed', 'canceled', name='appointment_status'), nullable=False)
+    escalated          = db.Column(db.Boolean, default=False)
+    escalation_reason  = db.Column(db.Text)
+    notes              = db.Column(db.Text)
+    created_at         = db.Column(db.DateTime, nullable=False)
+    updated_at         = db.Column(db.DateTime, nullable=False)
+    # Named backrefs to avoid conflict with other FK→users relationships
+    mother_user        = db.relationship('User', foreign_keys=[mother_id],
+                                         backref=db.backref('appointments_as_mother', lazy=True))
+    hw_user            = db.relationship('User', foreign_keys=[health_worker_id],
+                                         backref=db.backref('appointments_as_hw', lazy=True))
+
+# Escalation model: CHW escalates a mother's case to a nurse
+class Escalation(db.Model):
+    __tablename__ = 'escalations'
+    id               = db.Column(db.Integer, primary_key=True)
+    chw_id           = db.Column(db.Integer, db.ForeignKey('chws.id', ondelete='CASCADE'), nullable=False)
+    chw_name         = db.Column(db.String(128), nullable=False)
+    nurse_id         = db.Column(db.Integer, db.ForeignKey('nurses.id', ondelete='CASCADE'), nullable=False)
+    nurse_name       = db.Column(db.String(128), nullable=False)
+    mother_id        = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'))
+    mother_name      = db.Column(db.String(128), nullable=False)
+    case_description = db.Column(db.Text, nullable=False)
+    issue_type       = db.Column(db.String(64))
+    notes            = db.Column(db.Text)
+    priority         = db.Column(db.String(16), nullable=False, default='medium')
+    status           = db.Column(db.String(16), nullable=False, default='pending')
+    created_at       = db.Column(db.DateTime, nullable=False)
+    resolved_at      = db.Column(db.DateTime)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('pending', 'in_progress', 'resolved', 'rejected')",
+            name='chk_escalation_status'
+        ),
+        db.CheckConstraint(
+            "priority IN ('low', 'medium', 'high', 'critical')",
+            name='chk_escalation_priority'
+        ),
+    )
+
+    chw    = db.relationship('CHW',    backref=db.backref('escalations', lazy=True))
+    nurse  = db.relationship('Nurse',  backref=db.backref('escalations_received', lazy=True))
+    mother = db.relationship('Mother', backref=db.backref('escalations', lazy=True))
 
 # MedicalRecordType model: extensible enum for record types
 class MedicalRecordType(db.Model):
