@@ -38,6 +38,7 @@ def get_assigned_mothers(chw_id):
         result.append({
             "assignment_id": a.id,
             "mother_id": mother.id,
+            "user_id": mother.user_id,        # users.id — needed for appointment creation
             "name": mother.mother_name,
             "phone": user.phone_number if user else None,
             "location": mother.location,

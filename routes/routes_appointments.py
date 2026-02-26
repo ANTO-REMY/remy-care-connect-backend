@@ -31,6 +31,7 @@ def _serialize(a):
         "mother_id": a.mother_id,
         "health_worker_id": a.health_worker_id,
         "scheduled_time": a.scheduled_time.isoformat() if a.scheduled_time else None,
+        "appointment_type": a.appointment_type,
         "recurrence_rule": a.recurrence_rule,
         "recurrence_end": a.recurrence_end.isoformat() if a.recurrence_end else None,
         "status": a.status,
@@ -56,20 +57,21 @@ def create_appointment():
     """
     Create an appointment.
     Body:
-      mother_id (int), health_worker_id (int), scheduled_time (ISO8601),
-      status ('scheduled'|'completed'|'canceled'),
+      mother_id (int), health_worker_id (int), scheduled_time (ISO8601) – required
+      status ('scheduled'|'completed'|'cancelled'|'rescheduled') – optional, default 'scheduled'
       recurrence_rule (str, optional), recurrence_end (ISO8601, optional),
       notes (str, optional)
     """
     data = request.get_json() or {}
 
-    required = ['mother_id', 'health_worker_id', 'scheduled_time', 'status']
+    required = ['mother_id', 'health_worker_id', 'scheduled_time']
     missing = [f for f in required if not data.get(f)]
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
 
-    if data['status'] not in ('scheduled', 'completed', 'canceled'):
-        return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
+    status = data.get('status', 'scheduled')
+    if status not in ('scheduled', 'completed', 'canceled', 'cancelled', 'rescheduled'):
+        return jsonify({"error": "status must be scheduled | completed | cancelled | rescheduled"}), 400
 
     # Validate mother user exists
     mother_user = User.query.get(data['mother_id'])
@@ -102,7 +104,8 @@ def create_appointment():
             scheduled_time=scheduled_time,
             recurrence_rule=data.get('recurrence_rule'),
             recurrence_end=recurrence_end,
-            status=data['status'],
+            appointment_type=data.get('appointment_type'),
+            status=status,
             escalated=data.get('escalated', False),
             escalation_reason=data.get('escalation_reason'),
             notes=data.get('notes'),
@@ -176,7 +179,7 @@ def update_appointment(appt_id):
         except (ValueError, AttributeError):
             return jsonify({"error": "scheduled_time must be a valid ISO 8601 datetime."}), 400
 
-    for field in ('notes', 'recurrence_rule', 'escalation_reason'):
+    for field in ('notes', 'recurrence_rule', 'escalation_reason', 'appointment_type'):
         if field in data:
             setattr(a, field, data[field])
 
@@ -197,7 +200,7 @@ def update_appointment(appt_id):
 @bp.route('/appointments/<int:appt_id>/status', methods=['PATCH'])
 def update_appointment_status(appt_id):
     """
-    Body: { "status": "scheduled" | "completed" | "canceled" }
+    Body: { "status": "scheduled" | "completed" | "cancelled" | "rescheduled" }
     """
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
@@ -205,8 +208,8 @@ def update_appointment_status(appt_id):
 
     data = request.get_json() or {}
     new_status = data.get('status')
-    if new_status not in ('scheduled', 'completed', 'canceled'):
-        return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
+    if new_status not in ('scheduled', 'completed', 'canceled', 'cancelled', 'rescheduled'):
+        return jsonify({"error": "status must be scheduled | completed | cancelled | rescheduled"}), 400
 
     a.status = new_status
     a.updated_at = datetime.utcnow()

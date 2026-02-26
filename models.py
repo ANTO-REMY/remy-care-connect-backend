@@ -126,6 +126,7 @@ class AppointmentSchedule(db.Model):
     recurrence_rule    = db.Column(db.String)
     recurrence_end     = db.Column(db.DateTime)
     status             = db.Column(db.Enum('scheduled', 'completed', 'canceled', name='appointment_status'), nullable=False)
+    appointment_type   = db.Column(db.String(64))
     escalated          = db.Column(db.Boolean, default=False)
     escalation_reason  = db.Column(db.Text)
     notes              = db.Column(db.Text)
