@@ -5,16 +5,22 @@ class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     phone_number = db.Column(db.String(20), unique=True, nullable=False)
-    name = db.Column(db.String(128), nullable=False)
+    first_name = db.Column(db.String(64), nullable=False)
+    last_name  = db.Column(db.String(64), nullable=False, default='')
+    email      = db.Column(db.String(255), nullable=True)
     pin_hash = db.Column(db.String(128), nullable=False)
-    role = db.Column(db.Enum('mother', 'chw', 'nurse', name='user_roles'), nullable=False)
+    role = db.Column(db.String(10), nullable=False)
     is_verified = db.Column(db.Boolean, default=False, nullable=False)
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
     updated_at = db.Column(db.DateTime, nullable=False)
     mother = db.relationship('Mother', backref='user', uselist=False)
     chw = db.relationship('CHW', backref='user', uselist=False)
     nurse = db.relationship('Nurse', backref='user', uselist=False)
+
+    @property
+    def name(self):
+        """Full name — joins first_name and last_name. Read-only convenience property."""
+        return f"{self.first_name} {self.last_name}".strip()
 
 # UserSession model: stores active sessions for hybrid authentication
 class UserSession(db.Model):
@@ -36,9 +42,9 @@ class Mother(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
     mother_name = db.Column(db.String(128), nullable=False)
-    dob = db.Column(db.Date, nullable=False)
-    due_date = db.Column(db.Date, nullable=False)
-    location = db.Column(db.String(128), nullable=False)
+    dob = db.Column(db.Date, nullable=True)       # filled when mother completes profile
+    due_date = db.Column(db.Date, nullable=True)   # filled when mother completes profile
+    location = db.Column(db.String(128), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False)
 
 # CHW model: profile for community health workers, linked to User
@@ -71,6 +77,21 @@ class Verification(db.Model):
     status = db.Column(db.Enum('pending', 'verified', 'expired', name='verification_status'), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
+
+# ProfilePhoto model: stores profile photo uploads per user; only one is active at a time
+class ProfilePhoto(db.Model):
+    __tablename__ = 'profile_photos'
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    role        = db.Column(db.Enum('mother', 'chw', 'nurse', name='user_roles'), nullable=False)
+    file_name   = db.Column(db.String(255), nullable=False)   # sanitised original filename
+    file_url    = db.Column(db.String(512), nullable=False)   # relative URL served by Flask
+    mime_type   = db.Column(db.String(64), nullable=False, default='image/jpeg')
+    file_size   = db.Column(db.Integer)                       # bytes
+    is_active   = db.Column(db.Boolean, nullable=False, default=True)
+    uploaded_at = db.Column(db.DateTime, nullable=False)
+    updated_at  = db.Column(db.DateTime, nullable=False)
+    user        = db.relationship('User', backref=db.backref('profile_photos', lazy=True))
 
 # AppointmentSchedule model: recurring appointments and escalation
 class AppointmentSchedule(db.Model):

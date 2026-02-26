@@ -107,8 +107,16 @@ def update_nurse(nurse_id):
     data = request.get_json()
     user = User.query.get(nurse.user_id)
     if 'full_name' in data:
-        nurse.nurse_name = data['full_name']
-        user.name = data['full_name']
+        parts = data['full_name'].strip().split(' ', 1)
+        user.first_name = parts[0]
+        user.last_name  = parts[1] if len(parts) > 1 else ''
+        nurse.nurse_name = data['full_name'].strip()
+    elif 'first_name' in data or 'last_name' in data:
+        if 'first_name' in data:
+            user.first_name = data['first_name'].strip()
+        if 'last_name' in data:
+            user.last_name = data['last_name'].strip()
+        nurse.nurse_name = user.name
     if 'license_number' in data:
         nurse.license_number = data['license_number']
     if 'location' in data:

@@ -1,19 +1,29 @@
 from flask import Blueprint, request, jsonify
 from models import db, NextOfKin, Mother
+from auth_utils import require_auth, get_current_user
 from datetime import datetime
 
 bp = Blueprint('nextofkin', __name__)
 
 @bp.route('/nextofkin/', methods=['POST'])
+@require_auth
 def create_next_of_kin():
+    user = get_current_user()
+
+    # Resolve the mothers table PK from the current user's ID
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({'error': 'Mother profile not found. Please complete your profile first.'}), 404
+
     data = request.get_json()
-    required = ['user_id', 'mother_name', 'name', 'phone', 'sex', 'relationship']
+    required = ['name', 'phone', 'sex', 'relationship']
     for field in required:
         if not data.get(field):
             return jsonify({'error': f'{field} is required'}), 400
+
     kin = NextOfKin(
-        user_id=data['user_id'],
-        mother_name=data['mother_name'],
+        user_id=mother.id,                          # FK → mothers.id  ✓
+        mother_name=mother.mother_name or user.name,
         name=data['name'],
         phone=data['phone'],
         sex=data['sex'],
@@ -23,6 +33,7 @@ def create_next_of_kin():
     db.session.add(kin)
     db.session.commit()
     return jsonify({'message': 'Next of kin added', 'id': kin.id}), 201
+
 
 @bp.route('/nextofkin/<int:mother_id>', methods=['GET'])
 def get_next_of_kin(mother_id):

@@ -67,9 +67,19 @@ def update_mother_profile(mother_id):
     data = request.get_json()
     updated = False
     if 'full_name' in data and data['full_name']:
-        mother.mother_name = data['full_name']
+        parts = data['full_name'].strip().split(' ', 1)
         user = User.query.get(mother.user_id)
-        user.name = data['full_name']
+        user.first_name = parts[0]
+        user.last_name  = parts[1] if len(parts) > 1 else ''
+        mother.mother_name = data['full_name'].strip()
+        updated = True
+    elif 'first_name' in data or 'last_name' in data:
+        user = User.query.get(mother.user_id)
+        if 'first_name' in data:
+            user.first_name = data['first_name'].strip()
+        if 'last_name' in data:
+            user.last_name = data['last_name'].strip()
+        mother.mother_name = user.name
         updated = True
     if 'dob' in data and data['dob']:
         try:

@@ -107,8 +107,16 @@ def update_chw(chw_id):
     data = request.get_json()
     user = User.query.get(chw.user_id)
     if 'full_name' in data:
-        chw.chw_name = data['full_name']
-        user.name = data['full_name']
+        parts = data['full_name'].strip().split(' ', 1)
+        user.first_name = parts[0]
+        user.last_name  = parts[1] if len(parts) > 1 else ''
+        chw.chw_name = data['full_name'].strip()
+    elif 'first_name' in data or 'last_name' in data:
+        if 'first_name' in data:
+            user.first_name = data['first_name'].strip()
+        if 'last_name' in data:
+            user.last_name = data['last_name'].strip()
+        chw.chw_name = user.name
     if 'license_number' in data:
         chw.license_number = data['license_number']
     if 'location' in data:

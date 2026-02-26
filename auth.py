@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError
 import random
 import re
+import json
 
 bp = Blueprint('auth', __name__)
 
@@ -46,15 +47,26 @@ def register():
     data = request.get_json()
     
     # Validate required fields
-    required_fields = ['phone_number', 'name', 'pin', 'role']
+    required_fields = ['phone_number', 'first_name', 'last_name', 'pin', 'role']
     for field in required_fields:
         if not data.get(field):
             return jsonify({'error': f'{field} is required'}), 400
     
     phone_number = normalize_phone_number(data['phone_number'])
-    name = data['name']
-    pin = data['pin']
+    first_name = data['first_name'].strip()
+    last_name  = data['last_name'].strip()
+    pin  = data['pin']
     role = data['role']
+    email = data.get('email', '').strip() or None   # optional
+    license_number = data.get('license_number', '').strip()
+    location = data.get('location', '').strip()
+
+    # CHW and Nurse require license_number and location
+    if role in ('chw', 'nurse'):
+        if not license_number:
+            return jsonify({'error': 'license_number is required for CHW/Nurse registration'}), 400
+        if not location:
+            return jsonify({'error': 'location is required for CHW/Nurse registration'}), 400
     
     # Validate phone number format
     if not validate_phone_number(phone_number):
@@ -64,9 +76,11 @@ def register():
     if len(pin) < 4 or len(pin) > 8:
         return jsonify({'error': 'PIN must be between 4 and 8 characters'}), 400
     
-    # Validate name
-    if len(name.strip()) < 2:
-        return jsonify({'error': 'Name must be at least 2 characters long'}), 400
+    # Validate name fields
+    if len(first_name) < 2:
+        return jsonify({'error': 'First name must be at least 2 characters long'}), 400
+    if len(last_name) < 1:
+        return jsonify({'error': 'Last name is required'}), 400
     
     # Validate role
     if role not in ['mother', 'chw', 'nurse']:
@@ -81,7 +95,9 @@ def register():
         # Create new user (unverified)
         user = User(
             phone_number=phone_number,
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
             pin_hash=hash_pin(pin),
             role=role,
             is_verified=False,
@@ -111,6 +127,9 @@ def register():
         return jsonify({
             'message': 'Registration successful. Please verify your phone number.',
             'user_id': user.id,
+            'role': role,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
             'otp_code': otp_code,  # Remove this in production
             'expires_in': '10 minutes'
         }), 201
@@ -154,12 +173,63 @@ def verify_otp():
     user.is_verified = True
     user.updated_at = datetime.utcnow()
     verification.status = 'verified'
-    
+
+    # --- Auto-create the role-specific profile if it doesn't exist yet ---
+    now = datetime.utcnow()
+    try:
+        if user.role == 'chw' and not user.chw:
+            license_number = data.get('license_number', '').strip()
+            location = data.get('location', '').strip()
+            chw = CHW(
+                user_id=user.id,
+                chw_name=user.name,
+                license_number=license_number or 'PENDING',
+                location=location or 'PENDING',
+                created_at=now
+            )
+            db.session.add(chw)
+
+        elif user.role == 'nurse' and not user.nurse:
+            license_number = data.get('license_number', '').strip()
+            location = data.get('location', '').strip()
+            nurse = Nurse(
+                user_id=user.id,
+                nurse_name=user.name,
+                license_number=license_number or 'PENDING',
+                location=location or 'PENDING',
+                created_at=now
+            )
+            db.session.add(nurse)
+
+        elif user.role == 'mother' and not user.mother:
+            # dob / due_date are nullable — mother completes profile from dashboard
+            mother = Mother(
+                user_id=user.id,
+                mother_name=user.name,
+                created_at=now
+            )
+            db.session.add(mother)
+
+    except Exception as profile_error:
+        # Don't block verification if profile creation fails — log and continue
+        print(f"[WARN] Could not auto-create role profile for user {user.id}: {profile_error}")
+
     db.session.commit()
-    
+
+    # Determine the created profile id for the response
+    profile_id = None
+    if user.role == 'chw' and user.chw:
+        profile_id = user.chw.id
+    elif user.role == 'nurse' and user.nurse:
+        profile_id = user.nurse.id
+    elif user.role == 'mother' and user.mother:
+        profile_id = user.mother.id
+
     return jsonify({
         'message': 'Phone number verified successfully. You can now login.',
-        'user_id': user.id
+        'user_id': user.id,
+        'role': user.role,
+        'profile_id': profile_id
     }), 200
 
 @bp.route('/auth/login', methods=['POST'])
@@ -199,8 +269,6 @@ def login():
     if not user.is_verified:
         return jsonify({'error': 'Please verify your phone number first. Check for SMS with verification code.'}), 401
     
-    if not user.is_active:
-        return jsonify({'error': 'Your account has been deactivated. Please contact support.'}), 401
     
     # Get device info from request headers
     device_info = request.headers.get('User-Agent', 'Unknown Device')
@@ -224,6 +292,8 @@ def login():
         'user': {
             'id': user.id,
             'phone_number': user.phone_number,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
             'name': user.name,
             'role': user.role
         }
@@ -236,7 +306,7 @@ def refresh():
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
     
-    if not user or not user.is_active or not user.is_verified:
+    if not user or not user.is_verified:
         return jsonify({'error': 'Invalid user'}), 401
     
     new_access_token = create_access_token(identity=str(current_user_id))

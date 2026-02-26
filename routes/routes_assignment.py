@@ -25,13 +25,50 @@ def assign_mother_to_chw(chw_id):
     mother_id = data.get('mother_id')
     if not mother_id:
         return jsonify({"error": "mother_id is required."}), 400
+
+    # Validate CHW profile exists (not just the user)
+    chw = CHW.query.get(chw_id)
+    if not chw:
+        # Help diagnose: check if a user with this id exists but has no CHW profile
+        user = User.query.get(chw_id)
+        if user and user.role == 'chw':
+            return jsonify({
+                "error": f"CHW profile not found for user {chw_id}. "
+                         "The CHW registered but their profile was not created. "
+                         "Please contact support or re-register."
+            }), 404
+        return jsonify({"error": f"CHW with id {chw_id} not found."}), 404
+
+    # Validate Mother profile exists
+    mother = Mother.query.get(mother_id)
+    if not mother:
+        return jsonify({"error": f"Mother with id {mother_id} not found."}), 404
+
+    # Enforce max 2 mothers per CHW
     existing_assignments = MotherCHWAssignment.query.filter_by(chw_id=chw_id).count()
     if existing_assignments >= 2:
         return jsonify({"error": "CHW already has 2 mothers assigned."}), 400
+
     # Prevent duplicate assignment
     if MotherCHWAssignment.query.filter_by(chw_id=chw_id, mother_id=mother_id).first():
         return jsonify({"error": "Mother already assigned to this CHW."}), 400
-    assignment = MotherCHWAssignment(chw_id=chw_id, mother_id=mother_id)
-    db.session.add(assignment)
-    db.session.commit()
-    return jsonify({"message": "Mother assigned to CHW."}), 201
+
+    try:
+        assignment = MotherCHWAssignment(
+            chw_id=chw_id,
+            mother_id=mother_id,
+            chw_name=chw.chw_name,
+            mother_name=mother.mother_name,
+            status='active'
+        )
+        db.session.add(assignment)
+        db.session.commit()
+        return jsonify({
+            "message": "Mother assigned to CHW successfully.",
+            "chw_name": chw.chw_name,
+            "mother_name": mother.mother_name,
+            "status": "active",
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Assignment failed: {str(e)}"}), 500

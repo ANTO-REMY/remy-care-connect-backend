@@ -79,7 +79,7 @@ def require_auth(f):
         except Exception as e:
             return jsonify({'error': 'Invalid or expired token'}), 401
         
-        if not user or not user.is_active or not user.is_verified:
+        if not user or not user.is_verified:
             return jsonify({'error': 'Authentication required'}), 401
         
         # Add user to request context
