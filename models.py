@@ -171,6 +171,18 @@ class Escalation(db.Model):
     nurse  = db.relationship('Nurse',  backref=db.backref('escalations_received', lazy=True))
     mother = db.relationship('Mother', backref=db.backref('escalations', lazy=True))
 
+# DailyCheckin model: daily health status from mothers
+class DailyCheckin(db.Model):
+    __tablename__ = 'daily_checkin'
+    id         = db.Column(db.Integer, primary_key=True)
+    mother_id  = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'), nullable=False)
+    response   = db.Column(db.String, nullable=False)   # 'ok' | 'not_ok'
+    comment    = db.Column(db.Text)
+    channel    = db.Column(db.String, nullable=False, default='app')  # 'app' | 'whatsapp' | 'sms'
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    mother = db.relationship('Mother', backref=db.backref('checkins', lazy=True))
+
 # MedicalRecordType model: extensible enum for record types
 class MedicalRecordType(db.Model):
     __tablename__ = 'medical_record_type'

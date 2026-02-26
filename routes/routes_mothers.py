@@ -6,7 +6,25 @@ from sqlalchemy.exc import IntegrityError
 
 bp = Blueprint('mothers', __name__)
 
-@bp.route('/mothers/complete-profile', methods=['POST'])
+@bp.route('/mothers/me', methods=['GET'])
+@require_auth
+def get_my_mother_profile():
+    """Return the mother profile for the currently authenticated user."""
+    user = get_current_user()
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({"error": "Mother profile not found."}), 404
+    return jsonify({
+        "mother_id": mother.id,
+        "user_id":   user.id,
+        "name":      mother.mother_name,
+        "first_name": user.first_name,
+        "last_name":  user.last_name,
+        "dob":        mother.dob.strftime('%Y-%m-%d'),
+        "due_date":   mother.due_date.strftime('%Y-%m-%d'),
+        "location":   mother.location,
+        "phone":      user.phone_number,
+    }), 200
 @require_auth
 @require_role('mother')
 def complete_mother_profile():

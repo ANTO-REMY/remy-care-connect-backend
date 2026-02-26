@@ -59,5 +59,7 @@ def create_app():
     app.register_blueprint(nextofkin_bp, url_prefix='/api/v1')
     app.register_blueprint(photos_bp, url_prefix='/api/v1')
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
+    from routes.routes_checkin import bp as checkin_bp
+    app.register_blueprint(checkin_bp, url_prefix='/api/v1')
 
     return app
