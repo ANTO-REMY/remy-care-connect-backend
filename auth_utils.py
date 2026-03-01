@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, g
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, create_access_token, create_refresh_token
 from models import User, UserSession, db
 import hashlib
@@ -82,8 +82,8 @@ def require_auth(f):
         if not user or not user.is_verified:
             return jsonify({'error': 'Authentication required'}), 401
         
-        # Add user to request context
-        request.current_user = user
+        # Add user to request context (use flask.g for proper typing)
+        g.current_user = user
         
         return f(*args, **kwargs)
     
@@ -94,10 +94,10 @@ def require_role(*allowed_roles):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            if not hasattr(request, 'current_user'):
+            if not hasattr(g, 'current_user'):
                 return jsonify({'error': 'Authentication required'}), 401
             
-            if request.current_user.role not in allowed_roles:
+            if g.current_user.role not in allowed_roles:
                 return jsonify({'error': 'Insufficient permissions'}), 403
             
             return f(*args, **kwargs)
@@ -106,8 +106,8 @@ def require_role(*allowed_roles):
     return decorator
 
 def get_current_user():
-    """Get the current authenticated user"""
-    return getattr(request, 'current_user', None)
+    """Get the current authenticated user from flask.g context."""
+    return getattr(g, 'current_user', None)
 
 def logout_user_sessions(user_id, current_session_token=None):
     """Logout all user sessions except current one (optional)"""

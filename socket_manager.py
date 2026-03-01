@@ -14,7 +14,7 @@ socketio = SocketIO(
         "http://localhost:5173",
         "http://localhost:3000",
     ],
-    async_mode="eventlet",
+    async_mode="threading",
     # Allow the JWT token to be passed as a query-string param on connect
     # e.g. ?token=<JWT>
     logger=False,

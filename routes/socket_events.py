@@ -83,12 +83,27 @@ def on_join_rooms(data):
     """
     Client sends { "profile_id": <int> } after connecting to enter
     the typed-profile room (chw:<id> or nurse:<id>).
+    Re-decodes JWT from request.args since request.environ is not
+    shared across socket events in threading mode.
     """
-    role       = request.environ.get("_ws_role", "")
+    token = request.args.get("token", "")
     profile_id = data.get("profile_id") if isinstance(data, dict) else None
 
-    if profile_id and role in ("chw", "nurse"):
-        join_room(f"{role}:{profile_id}")
+    if not token or not profile_id:
+        return
+
+    try:
+        decoded = decode_token(token)
+        identity = decoded.get("sub", {})
+        if isinstance(identity, dict):
+            role = identity.get("role", "")
+        else:
+            role = ""
+
+        if role in ("chw", "nurse"):
+            join_room(f"{role}:{profile_id}")
+    except (DecodeError, ExpiredSignatureError, Exception):
+        pass  # Silently fail — socket will continue without profile room
 
 
 # ── disconnect ────────────────────────────────────────────────────────────────

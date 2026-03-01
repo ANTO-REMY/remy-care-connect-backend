@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "remy-care-connect-v6",
         "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments",
-        "description": "Updated February 2026. Reflects DB migration 018: added Escalations (CHW→Nurse case flow), Mother-CHW Assignments (full CRUD + nurse team view), and Appointment Schedule (full CRUD with date filtering). Previous v6 changes: users.name split into first_name + last_name, email column added.",
+        "description": "Updated March 2026. Added: GET /mothers/{user_id}/assigned_chw for mother dashboard to fetch assigned CHW. Appointments now auto-resolve health_worker_id when created by mother. WebSocket events emit to profile rooms (chw:{id}, nurse:{id}) in addition to user rooms.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         "version": {
             "major": 6,
@@ -1621,6 +1621,19 @@
                             "path": ["api", "v1", "nurses", "{{nurse_id}}", "assignments"]
                         },
                         "description": "List all CHWs (and their assigned mothers) that are in the same ward as the nurse."
+                    }
+                },
+                {
+                    "name": "Get Assigned CHW for Mother",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/mothers/{{user_id}}/assigned_chw",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "mothers", "{{user_id}}", "assigned_chw"]
+                        },
+                        "description": "Get the CHW assigned to a mother (by mother's user_id). Returns CHW user_id, profile_id, name, phone, location, and assignment details. Used by mother dashboard to know their health worker."
                     }
                 }
             ]

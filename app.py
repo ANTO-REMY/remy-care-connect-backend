@@ -5,8 +5,6 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
-import eventlet
-eventlet.monkey_patch()
 
 # Load environment variables from .env if present
 load_dotenv()

@@ -74,51 +74,61 @@ def init_demo_users():
                     print(f"⏭️  User {user_data['name']} already exists, skipping...")
                     continue
                     
-                # Create base user
-                user = User(
-                    phone_number=user_data["phone_number"],
-                    name=user_data["name"], 
-                    pin_hash=hash_pin(user_data["pin"]),
-                    role=user_data["role"],
-                    is_verified=True,  # Skip verification for demo
-                    is_active=True,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
+                # Create base user  (User has first_name / last_name, no 'name' or 'is_active')
+                name_parts = user_data["name"].split(" ", 1)
+                user = User()
+                user.phone_number = user_data["phone_number"]
+                user.first_name   = name_parts[0]
+                user.last_name    = name_parts[1] if len(name_parts) > 1 else ""
+                user.pin_hash     = hash_pin(user_data["pin"])
+                user.role         = user_data["role"]
+                user.is_verified  = True  # Skip verification for demo
+                user.created_at   = datetime.now(timezone.utc)
+                user.updated_at   = datetime.now(timezone.utc)
                 
                 db.session.add(user)
                 db.session.flush()  # Get user ID
                 
                 # Create role-specific records
+                # Grab first available ward/sub-county for required FK columns
+                from models import SubCounty, Ward
+                default_sub_county = SubCounty.query.first()
+                default_ward = Ward.query.first()
+                sc_id = default_sub_county.id if default_sub_county else 1
+                ward_id = default_ward.id if default_ward else 1
+
                 if user_data["role"] == "mother":
-                    mother = Mother(
-                        user_id=user.id,
-                        mother_name=user_data["name"],
-                        dob=user_data["extra_data"]["date_of_birth"],
-                        due_date=user_data["extra_data"]["due_date"],
-                        location=user_data["extra_data"]["location"],
-                        created_at=datetime.now(timezone.utc)
-                    )
+                    mother = Mother()
+                    mother.user_id       = user.id
+                    mother.mother_name   = user_data["name"]
+                    mother.dob           = user_data["extra_data"]["date_of_birth"]
+                    mother.due_date      = user_data["extra_data"]["due_date"]
+                    mother.location      = user_data["extra_data"]["location"]
+                    mother.ward_id       = ward_id
+                    mother.sub_county_id = sc_id
+                    mother.created_at    = datetime.now(timezone.utc)
                     db.session.add(mother)
-                    
+
                 elif user_data["role"] == "chw":
-                    chw = CHW(
-                        user_id=user.id,
-                        chw_name=user_data["name"],
-                        license_number=f"CHW{user.id:04d}",
-                        location=user_data["extra_data"]["location"],
-                        created_at=datetime.now(timezone.utc)
-                    )
+                    chw = CHW()
+                    chw.user_id         = user.id
+                    chw.chw_name        = user_data["name"]
+                    chw.license_number  = f"CHW{user.id:04d}"
+                    chw.location        = user_data["extra_data"]["location"]
+                    chw.ward_id         = ward_id
+                    chw.sub_county_id   = sc_id
+                    chw.created_at      = datetime.now(timezone.utc)
                     db.session.add(chw)
-                    
+
                 elif user_data["role"] == "nurse":
-                    nurse = Nurse(
-                        user_id=user.id,
-                        nurse_name=user_data["name"],
-                        license_number=f"NUR{user.id:04d}",
-                        location=user_data["extra_data"]["location"],
-                        created_at=datetime.now(timezone.utc)
-                    )
+                    nurse = Nurse()
+                    nurse.user_id        = user.id
+                    nurse.nurse_name     = user_data["name"]
+                    nurse.license_number = f"NUR{user.id:04d}"
+                    nurse.location       = user_data["extra_data"]["location"]
+                    nurse.ward_id        = ward_id
+                    nurse.sub_county_id  = sc_id
+                    nurse.created_at     = datetime.now(timezone.utc)
                     db.session.add(nurse)
                 
                 db.session.commit()

@@ -33,6 +33,9 @@ class User(db.Model):
     chw = db.relationship('CHW', backref='user', uselist=False)
     nurse = db.relationship('Nurse', backref='user', uselist=False)
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     @property
     def name(self):
         """Full name — joins first_name and last_name. Read-only convenience property."""
@@ -52,6 +55,9 @@ class UserSession(db.Model):
     last_activity = db.Column(db.DateTime, nullable=False)
     user = db.relationship('User', backref='sessions')
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
 # Mother model: profile and demographic info for mothers, linked to User
 class Mother(db.Model):
     __tablename__ = 'mothers'
@@ -65,6 +71,9 @@ class Mother(db.Model):
     sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
     created_at    = db.Column(db.DateTime, nullable=False)
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
 # CHW model: profile for community health workers, linked to User
 class CHW(db.Model):
     __tablename__ = 'chws'
@@ -77,6 +86,9 @@ class CHW(db.Model):
     sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
     created_at    = db.Column(db.DateTime, nullable=False)
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
 # Nurse model: profile for nurses, linked to User
 class Nurse(db.Model):
     __tablename__ = 'nurses'
@@ -88,6 +100,9 @@ class Nurse(db.Model):
     ward_id       = db.Column(db.Integer, db.ForeignKey('wards.id'), nullable=False)
     sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
     created_at    = db.Column(db.DateTime, nullable=False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 # Verification model: stores OTP codes for phone verification, linked to User if exists
 class Verification(db.Model):
@@ -130,13 +145,20 @@ class AppointmentSchedule(db.Model):
     escalated          = db.Column(db.Boolean, default=False)
     escalation_reason  = db.Column(db.Text)
     notes              = db.Column(db.Text)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)  # Who created this appointment
     created_at         = db.Column(db.DateTime, nullable=False)
     updated_at         = db.Column(db.DateTime, nullable=False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     # Named backrefs to avoid conflict with other FK→users relationships
     mother_user        = db.relationship('User', foreign_keys=[mother_id],
                                          backref=db.backref('appointments_as_mother', lazy=True))
     hw_user            = db.relationship('User', foreign_keys=[health_worker_id],
                                          backref=db.backref('appointments_as_hw', lazy=True))
+    creator_user       = db.relationship('User', foreign_keys=[created_by_user_id],
+                                         backref=db.backref('appointments_created', lazy=True))
 
 # Escalation model: CHW escalates a mother's case to a nurse
 class Escalation(db.Model):
@@ -155,6 +177,9 @@ class Escalation(db.Model):
     status           = db.Column(db.String(16), nullable=False, default='pending')
     created_at       = db.Column(db.DateTime, nullable=False)
     resolved_at      = db.Column(db.DateTime)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     __table_args__ = (
         db.CheckConstraint(
@@ -180,6 +205,9 @@ class DailyCheckin(db.Model):
     comment    = db.Column(db.Text)
     channel    = db.Column(db.String, nullable=False, default='app')  # 'app' | 'whatsapp' | 'sms'
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     mother = db.relationship('Mother', backref=db.backref('checkins', lazy=True))
 

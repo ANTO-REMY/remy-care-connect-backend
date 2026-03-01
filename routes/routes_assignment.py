@@ -163,6 +163,54 @@ def get_assignments_for_nurse(nurse_id):
     }), 200
 
 
+# ── Mother endpoints ──────────────────────────────────────────────────────────
+
+@bp.route('/mothers/<int:user_id>/assigned_chw', methods=['GET'])
+def get_assigned_chw_for_mother(user_id):
+    """
+    Get the CHW assigned to a mother (by mother's user_id).
+    Returns the CHW's user_id and profile details.
+    """
+    # Find mother profile by user_id
+    mother = Mother.query.filter_by(user_id=user_id).first()
+    if not mother:
+        return jsonify({"error": f"Mother profile for user {user_id} not found."}), 404
+
+    # Find active assignment
+    assignment = MotherCHWAssignment.query.filter_by(
+        mother_id=mother.id, status='active'
+    ).first()
+    if not assignment:
+        return jsonify({
+            "assigned": False,
+            "message": "No active CHW assignment for this mother."
+        }), 200
+
+    # Get CHW profile
+    chw = CHW.query.get(assignment.chw_id)
+    if not chw:
+        return jsonify({
+            "assigned": False,
+            "error": "CHW profile not found for assignment."
+        }), 404
+
+    # Get CHW user for phone number
+    chw_user = User.query.get(chw.user_id)
+
+    return jsonify({
+        "assigned": True,
+        "chw": {
+            "user_id": chw.user_id,
+            "profile_id": chw.id,
+            "name": chw.chw_name,
+            "phone": chw_user.phone_number if chw_user else None,
+            "location": chw.assigned_area,
+        },
+        "assignment_id": assignment.id,
+        "assigned_at": assignment.assigned_at.isoformat() if assignment.assigned_at else None,
+    }), 200
+
+
 @bp.route('/assignments', methods=['GET'])
 def list_all_assignments():
     """List assignments.  Optional ?chw_id=&mother_id=&status="""

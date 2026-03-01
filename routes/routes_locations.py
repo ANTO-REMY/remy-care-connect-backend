@@ -58,6 +58,9 @@ def save_ward():
     The user's role is determined from the JWT payload.
     """
     user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required.'}), 401
+
     data = request.get_json() or {}
 
     ward_id = data.get('ward_id')
