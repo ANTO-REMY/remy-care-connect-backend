@@ -5,9 +5,13 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
+import eventlet
+eventlet.monkey_patch()
 
 # Load environment variables from .env if present
 load_dotenv()
+
+from socket_manager import socketio
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -32,6 +36,7 @@ def create_app():
     migrate.init_app(app, db)
     jwt.init_app(app)
     CORS(app, origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"], supports_credentials=True)
+    socketio.init_app(app)
 
     from routes.routes_health import bp as health_bp
     from auth import bp as auth_bp
@@ -61,5 +66,8 @@ def create_app():
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
+
+    # Register Socket.IO event handlers (import for side-effects)
+    import routes.socket_events  # noqa: F401
 
     return app

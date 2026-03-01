@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from models import db, CHW, Nurse, Mother, Escalation
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime
+from socket_manager import socketio
 
 bp = Blueprint('escalations', __name__)
 
@@ -88,7 +89,13 @@ def create_escalation():
         )
         db.session.add(escalation)
         db.session.commit()
-        return jsonify({"message": "Escalation created.", **_serialize(escalation)}), 201
+
+        payload = {"message": "Escalation created.", **_serialize(escalation)}
+        # ── WebSocket push ────────────────────────────────────────────────
+        socketio.emit("escalation:created", payload, to=f"nurse:{escalation.nurse_id}")
+        socketio.emit("escalation:created", payload, to=f"chw:{escalation.chw_id}")
+        # ─────────────────────────────────────────────────────────────────
+        return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -155,8 +162,13 @@ def update_escalation_status(escalation_id):
         e.notes = notes
 
     db.session.commit()
-    return jsonify({"message": f"Escalation status updated to '{new_status}'.",
-                    **_serialize(e)}), 200
+
+    payload = {"message": f"Escalation status updated to '{new_status}'.", **_serialize(e)}
+    # ── WebSocket push ────────────────────────────────────────────────────────
+    socketio.emit("escalation:updated", payload, to=f"nurse:{e.nurse_id}")
+    socketio.emit("escalation:updated", payload, to=f"chw:{e.chw_id}")
+    # ─────────────────────────────────────────────────────────────────────────
+    return jsonify(payload), 200
 
 # ── Update escalation fields ──────────────────────────────────────────────────
 
@@ -179,7 +191,13 @@ def update_escalation(escalation_id):
         return jsonify({"error": "priority must be low | medium | high | critical"}), 400
 
     db.session.commit()
-    return jsonify({"message": "Escalation updated.", **_serialize(e)}), 200
+
+    payload = {"message": "Escalation updated.", **_serialize(e)}
+    # ── WebSocket push ────────────────────────────────────────────────────────
+    socketio.emit("escalation:updated", payload, to=f"nurse:{e.nurse_id}")
+    socketio.emit("escalation:updated", payload, to=f"chw:{e.chw_id}")
+    # ─────────────────────────────────────────────────────────────────────────
+    return jsonify(payload), 200
 
 # ── Delete escalation ─────────────────────────────────────────────────────────
 

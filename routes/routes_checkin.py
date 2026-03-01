@@ -10,11 +10,12 @@ Daily check-in CRUD for the RemyCareConnect app.
 """
 
 from flask import Blueprint, request, jsonify
-from models import db, DailyCheckin, Mother, User
+from models import db, DailyCheckin, Mother, CHW, User
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, get_current_user
 from sqlalchemy import desc
 from datetime import datetime
+from socket_manager import socketio
 
 bp = Blueprint('checkin', __name__)
 
@@ -66,10 +67,23 @@ def create_checkin(mother_id):
     db.session.add(checkin)
     db.session.commit()
 
-    return jsonify({
+    payload = {
         "message": "Check-in recorded.",
         **_serialize(checkin, mother.mother_name),
-    }), 201
+    }
+
+    # ── WebSocket push ──────────────────────────────────────────────────────
+    # 1. Notify the mother's own personal room
+    socketio.emit("checkin:new", payload, to=f"user:{mother.user_id}")
+    # 2. Notify the assigned CHW(s) via their profile room
+    assignment = MotherCHWAssignment.query.filter_by(
+        mother_id=mother_id, status='active'
+    ).first()
+    if assignment:
+        socketio.emit("checkin:new", payload, to=f"chw:{assignment.chw_id}")
+    # ───────────────────────────────────────────────────────────────────────
+
+    return jsonify(payload), 201
 
 
 # ── List check-ins for a mother ────────────────────────────────────────────────

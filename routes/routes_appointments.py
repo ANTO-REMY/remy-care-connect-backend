@@ -20,6 +20,7 @@ from flask import Blueprint, jsonify, request
 from models import db, AppointmentSchedule, User, Mother, CHW, Nurse
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime
+from socket_manager import socketio
 
 bp = Blueprint('appointments', __name__)
 
@@ -114,7 +115,13 @@ def create_appointment():
         )
         db.session.add(appt)
         db.session.commit()
-        return jsonify({"message": "Appointment created.", **_serialize(appt)}), 201
+
+        payload = {"message": "Appointment created.", **_serialize(appt)}
+        # ── WebSocket push ────────────────────────────────────────────────
+        socketio.emit("appointment:created", payload, to=f"user:{appt.mother_id}")
+        socketio.emit("appointment:created", payload, to=f"user:{appt.health_worker_id}")
+        # ─────────────────────────────────────────────────────────────────
+        return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -193,7 +200,13 @@ def update_appointment(appt_id):
 
     a.updated_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"message": "Appointment updated.", **_serialize(a)}), 200
+
+    payload = {"message": "Appointment updated.", **_serialize(a)}
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("appointment:updated", payload, to=f"user:{a.mother_id}")
+    socketio.emit("appointment:updated", payload, to=f"user:{a.health_worker_id}")
+    # ─────────────────────────────────────────────────────────────────────
+    return jsonify(payload), 200
 
 # ── Update status only ────────────────────────────────────────────────────────
 
@@ -214,7 +227,13 @@ def update_appointment_status(appt_id):
     a.status = new_status
     a.updated_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"message": f"Appointment status updated to '{new_status}'.", **_serialize(a)}), 200
+
+    payload = {"message": f"Appointment status updated to '{new_status}'.", **_serialize(a)}
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("appointment:updated", payload, to=f"user:{a.mother_id}")
+    socketio.emit("appointment:updated", payload, to=f"user:{a.health_worker_id}")
+    # ─────────────────────────────────────────────────────────────────────
+    return jsonify(payload), 200
 
 # ── Delete appointment ────────────────────────────────────────────────────────
 
