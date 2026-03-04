@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, User, Verification
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 
 bp = Blueprint('verifications', __name__)
@@ -12,7 +12,7 @@ def send_otp():
     phone = data.get('phone')
     if not phone:
         return jsonify({"error": "Phone is required."}), 400
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     one_hour_ago = now - timedelta(hours=1)
     count = Verification.query.filter(
         Verification.phone_number == phone,
@@ -45,7 +45,7 @@ def verify_otp():
     code = data.get('code')
     if not phone or not code:
         return jsonify({"error": "Phone and code are required."}), 400
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     verification = Verification.query.filter_by(phone_number=phone, code=code, status='pending').order_by(Verification.created_at.desc()).first()
     if not verification:
         return jsonify({"error": "Invalid or expired OTP."}), 400

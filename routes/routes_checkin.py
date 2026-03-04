@@ -14,7 +14,7 @@ from models import db, DailyCheckin, Mother, CHW, User
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, get_current_user
 from sqlalchemy import desc
-from datetime import datetime
+from datetime import datetime, timezone
 from socket_manager import socketio
 
 bp = Blueprint('checkin', __name__)
@@ -62,7 +62,7 @@ def create_checkin(mother_id):
         response=response,
         comment=data.get('comment', '').strip() or None,
         channel=channel,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.session.add(checkin)
     db.session.commit()

@@ -20,7 +20,7 @@ from flask import Blueprint, jsonify, request
 from models import db, AppointmentSchedule, User, Mother, CHW, Nurse
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 from socket_manager import socketio
 
 bp = Blueprint('appointments', __name__)
@@ -78,8 +78,10 @@ def create_appointment():
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
 
     status = data.get('status', 'scheduled')
-    if status not in ('scheduled', 'completed', 'canceled', 'cancelled', 'rescheduled'):
-        return jsonify({"error": "status must be scheduled | completed | cancelled | rescheduled"}), 400
+    if status == 'cancelled':
+        status = 'canceled'
+    if status not in ('scheduled', 'completed', 'canceled', 'rescheduled'):
+        return jsonify({"error": "status must be scheduled | completed | canceled | rescheduled"}), 400
 
     # Validate mother user exists
     mother_user = User.query.get(data['mother_id'])
@@ -120,7 +122,7 @@ def create_appointment():
         except (ValueError, AttributeError):
             return jsonify({"error": "recurrence_end must be a valid ISO 8601 datetime."}), 400
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     try:
         appt = AppointmentSchedule()
         appt.mother_id = data['mother_id']
@@ -204,6 +206,7 @@ def get_appointment(appt_id):
 # ── Update appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments/<int:appt_id>', methods=['PATCH'])
+@require_auth
 def update_appointment(appt_id):
     """Update mutable fields: scheduled_time, notes, recurrence_rule, recurrence_end"""
     a = AppointmentSchedule.query.get(appt_id)
@@ -230,7 +233,7 @@ def update_appointment(appt_id):
         except (ValueError, AttributeError):
             return jsonify({"error": "recurrence_end must be a valid ISO 8601 datetime."}), 400
 
-    a.updated_at = datetime.utcnow()
+    a.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
     payload = {"message": "Appointment updated.", **_serialize(a)}
@@ -248,6 +251,7 @@ def update_appointment(appt_id):
 # ── Update status only ────────────────────────────────────────────────────────
 
 @bp.route('/appointments/<int:appt_id>/status', methods=['PATCH'])
+@require_auth
 def update_appointment_status(appt_id):
     """
     Body: { "status": "scheduled" | "completed" | "cancelled" | "rescheduled" }
@@ -258,11 +262,13 @@ def update_appointment_status(appt_id):
 
     data = request.get_json() or {}
     new_status = data.get('status')
-    if new_status not in ('scheduled', 'completed', 'canceled', 'cancelled', 'rescheduled'):
-        return jsonify({"error": "status must be scheduled | completed | cancelled | rescheduled"}), 400
+    if new_status == 'cancelled':
+        new_status = 'canceled'
+    if new_status not in ('scheduled', 'completed', 'canceled', 'rescheduled'):
+        return jsonify({"error": "status must be scheduled | completed | canceled | rescheduled"}), 400
 
     a.status = new_status
-    a.updated_at = datetime.utcnow()
+    a.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
     payload = {"message": f"Appointment status updated to '{new_status}'.", **_serialize(a)}
@@ -280,6 +286,7 @@ def update_appointment_status(appt_id):
 # ── Delete appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments/<int:appt_id>', methods=['DELETE'])
+@require_auth
 def delete_appointment(appt_id):
     a = AppointmentSchedule.query.get(appt_id)
     if not a:

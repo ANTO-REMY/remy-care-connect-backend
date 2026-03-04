@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, User, Mother
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 
 bp = Blueprint('mothers', __name__)
@@ -50,7 +50,7 @@ def complete_mother_profile():
             dob=datetime.strptime(data['dob'], '%Y-%m-%d'),
             due_date=datetime.strptime(data['due_date'], '%Y-%m-%d'),
             location=data['location'],
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         db.session.add(mother)
         db.session.commit()
@@ -120,7 +120,11 @@ def update_mother_profile(mother_id):
         updated = True
     if not updated:
         return jsonify({"error": "No valid fields to update."}), 400
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update profile: {str(e)}"}), 500
     return jsonify({"message": "Mother profile updated successfully."}), 200
 
 @bp.route('/mothers/<int:mother_id>', methods=['DELETE'])

@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, NextOfKin, Mother
 from auth_utils import require_auth, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 
 bp = Blueprint('nextofkin', __name__)
 
@@ -28,7 +28,7 @@ def create_next_of_kin():
         phone=data['phone'],
         sex=data['sex'],
         relationship=data['relationship'],
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     db.session.add(kin)
     db.session.commit()

@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, User, CHW
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import hashlib
 
@@ -24,7 +24,7 @@ def register_chw():
         return jsonify({"error": "PIN and Confirm PIN do not match."}), 400
     try:
         pin_hash = hashlib.sha256(data['pin'].encode()).hexdigest()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         user = User(
             phone_number=data['phone'],
             name=data['full_name'],
@@ -44,7 +44,7 @@ def register_chw():
         )
         db.session.add(chw)
         db.session.commit()
-        logging.error(f"[CHW REGISTER] Success for phone: {data['phone']}")
+        logging.info(f"[CHW REGISTER] Success for phone: {data['phone']}")
         return jsonify({"message": "CHW registered successfully", "chw_id": chw.id}), 201
     except Exception as e:
         db.session.rollback()
@@ -74,7 +74,7 @@ def complete_chw_profile():
             chw_name=user.name,
             license_number=data['license_number'],
             location=data['location'],
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         db.session.add(chw)
         db.session.commit()
@@ -121,6 +121,7 @@ def get_chw(chw_id):
     }), 200
 
 @bp.route('/chws/<int:chw_id>', methods=['PUT'])
+@require_auth
 def update_chw(chw_id):
     chw = CHW.query.get(chw_id)
     if not chw:
@@ -146,6 +147,8 @@ def update_chw(chw_id):
     return jsonify({"message": "CHW profile updated successfully."}), 200
 
 @bp.route('/chws/<int:chw_id>', methods=['DELETE'])
+@require_auth
+@require_role('nurse')
 def delete_chw(chw_id):
     chw = CHW.query.get(chw_id)
     if not chw:

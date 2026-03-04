@@ -14,7 +14,7 @@ Escalation flow:
 from flask import Blueprint, jsonify, request
 from models import db, CHW, Nurse, Mother, Escalation
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 from socket_manager import socketio
 
 bp = Blueprint('escalations', __name__)
@@ -42,6 +42,7 @@ def _serialize(e):
 # ── Create escalation ─────────────────────────────────────────────────────────
 
 @bp.route('/escalations', methods=['POST'])
+@require_auth
 def create_escalation():
     """
     CHW submits an escalation.
@@ -85,7 +86,7 @@ def create_escalation():
             notes=data.get('notes'),
             priority=priority,
             status='pending',
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.session.add(escalation)
         db.session.commit()
@@ -138,6 +139,8 @@ def get_escalation(escalation_id):
 # ── Update status (nurse action) ──────────────────────────────────────────────
 
 @bp.route('/escalations/<int:escalation_id>/status', methods=['PATCH'])
+@require_auth
+@require_role('nurse')
 def update_escalation_status(escalation_id):
     """
     Nurse updates the status.
@@ -157,7 +160,7 @@ def update_escalation_status(escalation_id):
 
     e.status = new_status
     if new_status in ('resolved', 'rejected'):
-        e.resolved_at = datetime.utcnow()
+        e.resolved_at = datetime.now(timezone.utc)
     if notes := data.get('notes'):
         e.notes = notes
 
@@ -173,6 +176,7 @@ def update_escalation_status(escalation_id):
 # ── Update escalation fields ──────────────────────────────────────────────────
 
 @bp.route('/escalations/<int:escalation_id>', methods=['PATCH'])
+@require_auth
 def update_escalation(escalation_id):
     """
     Update mutable fields: notes, priority, issue_type, case_description.
@@ -202,6 +206,7 @@ def update_escalation(escalation_id):
 # ── Delete escalation ─────────────────────────────────────────────────────────
 
 @bp.route('/escalations/<int:escalation_id>', methods=['DELETE'])
+@require_auth
 def delete_escalation(escalation_id):
     e = Escalation.query.get(escalation_id)
     if not e:

@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from models import db, CHW, Mother, Nurse, User
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 
 bp = Blueprint('assignment', __name__)
 
@@ -91,7 +91,7 @@ def assign_mother_to_chw(chw_id):
     ).first()
     if inactive:
         inactive.status = 'active'
-        inactive.assigned_at = datetime.utcnow()
+        inactive.assigned_at = datetime.now(timezone.utc)
         db.session.commit()
         return jsonify({"message": "Assignment reactivated.", **_serialize_assignment(inactive)}), 200
 

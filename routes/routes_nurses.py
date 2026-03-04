@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, User, Nurse
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import hashlib
 
@@ -24,7 +24,7 @@ def register_nurse():
         return jsonify({"error": "PIN and Confirm PIN do not match."}), 400
     try:
         pin_hash = hashlib.sha256(data['pin'].encode()).hexdigest()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         user = User(
             phone_number=data['phone'],
             name=data['full_name'],
@@ -44,7 +44,7 @@ def register_nurse():
         )
         db.session.add(nurse)
         db.session.commit()
-        logging.error(f"[NURSE REGISTER] Success for phone: {data['phone']}")
+        logging.info(f"[NURSE REGISTER] Success for phone: {data['phone']}")
         return jsonify({"message": "Nurse registered successfully", "nurse_id": nurse.id}), 201
     except Exception as e:
         db.session.rollback()
@@ -74,7 +74,7 @@ def complete_nurse_profile():
             nurse_name=user.name,
             license_number=data['license_number'],
             location=data['location'],
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         db.session.add(nurse)
         db.session.commit()
@@ -121,6 +121,7 @@ def get_nurse(nurse_id):
     }), 200
 
 @bp.route('/nurses/<int:nurse_id>', methods=['PUT'])
+@require_auth
 def update_nurse(nurse_id):
     nurse = Nurse.query.get(nurse_id)
     if not nurse:
@@ -146,6 +147,7 @@ def update_nurse(nurse_id):
     return jsonify({"message": "Nurse profile updated successfully."}), 200
 
 @bp.route('/nurses/<int:nurse_id>', methods=['DELETE'])
+@require_auth
 def delete_nurse(nurse_id):
     nurse = Nurse.query.get(nurse_id)
     if not nurse:
