@@ -1,22 +1,30 @@
 from flask import Blueprint, request, jsonify
-from models import db, User, Nurse
-from auth_utils import require_auth, require_role, get_current_user
+from models import db, User, Nurse, Ward
+from auth_utils import require_auth, require_role, get_current_user, hash_pin
 from datetime import datetime, timezone
 from socket_manager import socketio
 import logging
-import hashlib
 
 bp = Blueprint('nurses', __name__)
+
+def _split_full_name(full_name: str):
+    parts = full_name.strip().split(' ', 1)
+    return parts[0], parts[1] if len(parts) > 1 else ''
 
 @bp.route('/nurses/register', methods=['POST'])
 def register_nurse():
     data = request.get_json()
     logging.error(f"[NURSE REGISTER] {request.method} {request.path} - DATA: {data}")
-    required_fields = ['full_name', 'phone', 'license_number', 'location', 'pin', 'confirm_pin']
+    required_fields = ['full_name', 'phone', 'license_number', 'ward_id', 'pin', 'confirm_pin']
     for field in required_fields:
         if not data.get(field):
             logging.error(f"[NURSE REGISTER] Missing field: {field}")
             return jsonify({"error": f"{field} is required."}), 400
+
+    ward = Ward.query.get(data['ward_id'])
+    if not ward:
+        return jsonify({"error": f"Ward with id {data['ward_id']} not found"}), 400
+
     if User.query.filter_by(phone_number=data['phone']).first():
         logging.error(f"[NURSE REGISTER] Phone number already registered: {data['phone']}")
         return jsonify({"error": "Phone number already registered."}), 409
@@ -24,23 +32,28 @@ def register_nurse():
         logging.error("[NURSE REGISTER] PIN and Confirm PIN do not match.")
         return jsonify({"error": "PIN and Confirm PIN do not match."}), 400
     try:
-        pin_hash = hashlib.sha256(data['pin'].encode()).hexdigest()
         now = datetime.now(timezone.utc)
+        first_name, last_name = _split_full_name(data['full_name'])
         user = User(
             phone_number=data['phone'],
-            name=data['full_name'],
-            pin_hash=pin_hash,
+            first_name=first_name,
+            last_name=last_name,
+            pin_hash=hash_pin(data['pin']),
             role='nurse',
+            is_verified=True,
             created_at=now,
             updated_at=now
         )
         db.session.add(user)
         db.session.flush()
+        location_str = f"{ward.sub_county.name} > {ward.name}"
         nurse = Nurse(
             user_id=user.id,
             nurse_name=data['full_name'],
             license_number=data['license_number'],
-            location=data['location'],
+            location=location_str,
+            ward_id=ward.id,
+            sub_county_id=ward.sub_county_id,
             created_at=now
         )
         db.session.add(nurse)
@@ -115,7 +128,7 @@ def get_nurse(nurse_id):
         "nurse_id": nurse.id,
         "user_id": user.id,
         "name": nurse.nurse_name,
-        "phone": user.phone_number,
+        "phone_number": user.phone_number,
         "license_number": nurse.license_number,
         "location": nurse.location,
         "created_at": nurse.created_at.isoformat()
@@ -130,9 +143,7 @@ def update_nurse(nurse_id):
     data = request.get_json()
     user = User.query.get(nurse.user_id)
     if 'full_name' in data:
-        parts = data['full_name'].strip().split(' ', 1)
-        user.first_name = parts[0]
-        user.last_name  = parts[1] if len(parts) > 1 else ''
+        user.first_name, user.last_name = _split_full_name(data['full_name'])
         nurse.nurse_name = data['full_name'].strip()
     elif 'first_name' in data or 'last_name' in data:
         if 'first_name' in data:
@@ -185,7 +196,7 @@ def list_nurses():
             "nurse_id": nurse.id,
             "user_id": user.id,
             "name": nurse.nurse_name,
-            "phone": user.phone_number,
+            "phone_number": user.phone_number,
             "license_number": nurse.license_number,
             "location": nurse.location,
             "created_at": nurse.created_at.isoformat()
