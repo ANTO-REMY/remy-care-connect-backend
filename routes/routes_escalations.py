@@ -211,6 +211,15 @@ def delete_escalation(escalation_id):
     e = Escalation.query.get(escalation_id)
     if not e:
         return jsonify({"error": "Escalation not found."}), 404
+    # Capture IDs before deletion for the WS event
+    nurse_id = e.nurse_id
+    chw_id = e.chw_id
+    esc_id = e.id
     db.session.delete(e)
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    payload = {"id": esc_id}
+    socketio.emit("escalation:deleted", payload, to=f"nurse:{nurse_id}")
+    socketio.emit("escalation:deleted", payload, to=f"chw:{chw_id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Escalation deleted."}), 200

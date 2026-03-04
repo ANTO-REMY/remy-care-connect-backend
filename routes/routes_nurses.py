@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from models import db, User, Nurse
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
+from socket_manager import socketio
 import logging
 import hashlib
 
@@ -144,6 +145,22 @@ def update_nurse(nurse_id):
     if 'location' in data:
         nurse.location = data['location']
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("nurse:profile_updated", {
+        "nurse_id": nurse.id,
+        "user_id": nurse.user_id,
+        "name": nurse.nurse_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "license_number": nurse.license_number,
+        "location": nurse.location,
+    }, to=f"nurse:{nurse.id}")
+    socketio.emit("nurse:profile_updated", {
+        "nurse_id": nurse.id,
+        "user_id": nurse.user_id,
+        "name": nurse.nurse_name,
+    }, to=f"user:{nurse.user_id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Nurse profile updated successfully."}), 200
 
 @bp.route('/nurses/<int:nurse_id>', methods=['DELETE'])

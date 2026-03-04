@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from models import db, User, CHW
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
+from socket_manager import socketio
 import logging
 import hashlib
 
@@ -144,6 +145,22 @@ def update_chw(chw_id):
     if 'location' in data:
         chw.location = data['location']
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("chw:profile_updated", {
+        "chw_id": chw.id,
+        "user_id": chw.user_id,
+        "name": chw.chw_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "license_number": chw.license_number,
+        "location": chw.location,
+    }, to=f"chw:{chw.id}")
+    socketio.emit("chw:profile_updated", {
+        "chw_id": chw.id,
+        "user_id": chw.user_id,
+        "name": chw.chw_name,
+    }, to=f"user:{chw.user_id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "CHW profile updated successfully."}), 200
 
 @bp.route('/chws/<int:chw_id>', methods=['DELETE'])

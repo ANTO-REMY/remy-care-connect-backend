@@ -291,6 +291,21 @@ def delete_appointment(appt_id):
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
         return jsonify({"error": "Appointment not found."}), 404
+    # Capture IDs before deletion for the WS event
+    mother_id = a.mother_id
+    hw_id = a.health_worker_id
+    appt_id_val = a.id
     db.session.delete(a)
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    payload = {"id": appt_id_val}
+    socketio.emit("appointment:deleted", payload, to=f"user:{mother_id}")
+    socketio.emit("appointment:deleted", payload, to=f"user:{hw_id}")
+    chw_profile = CHW.query.filter_by(user_id=hw_id).first()
+    if chw_profile:
+        socketio.emit("appointment:deleted", payload, to=f"chw:{chw_profile.id}")
+    nurse_profile = Nurse.query.filter_by(user_id=hw_id).first()
+    if nurse_profile:
+        socketio.emit("appointment:deleted", payload, to=f"nurse:{nurse_profile.id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Appointment deleted."}), 200

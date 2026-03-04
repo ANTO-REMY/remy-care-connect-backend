@@ -64,6 +64,8 @@ def create_app():
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
+    from routes.routes_device_tokens import bp as device_tokens_bp
+    app.register_blueprint(device_tokens_bp, url_prefix='/api/v1')
 
     # Register Socket.IO event handlers (import for side-effects)
     import routes.socket_events  # noqa: F401

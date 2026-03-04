@@ -3,6 +3,7 @@ from models import db, CHW, Mother, Nurse, User
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
+from socket_manager import socketio
 
 bp = Blueprint('assignment', __name__)
 
@@ -18,6 +19,18 @@ def _serialize_assignment(a):
         "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
         "status": a.status,
     }
+
+
+def _emit_assignment_event(event: str, assignment, mother: Mother = None):
+    """Emit an assignment event to all relevant rooms (CHW + mother)."""
+    payload = _serialize_assignment(assignment)
+    # Always emit to the CHW profile room
+    socketio.emit(event, payload, to=f"chw:{assignment.chw_id}")
+    # Emit to the mother's user room if we can resolve user_id
+    if mother is None:
+        mother = Mother.query.get(assignment.mother_id)
+    if mother:
+        socketio.emit(event, payload, to=f"user:{mother.user_id}")
 
 # ── CHW endpoints ─────────────────────────────────────────────────────────────
 
@@ -93,6 +106,7 @@ def assign_mother_to_chw(chw_id):
         inactive.status = 'active'
         inactive.assigned_at = datetime.now(timezone.utc)
         db.session.commit()
+        _emit_assignment_event("assignment:created", inactive, mother)
         return jsonify({"message": "Assignment reactivated.", **_serialize_assignment(inactive)}), 200
 
     try:
@@ -105,6 +119,7 @@ def assign_mother_to_chw(chw_id):
         )
         db.session.add(assignment)
         db.session.commit()
+        _emit_assignment_event("assignment:created", assignment, mother)
         return jsonify({"message": "Mother assigned to CHW successfully.",
                         **_serialize_assignment(assignment)}), 201
     except Exception as e:
@@ -124,6 +139,7 @@ def update_assignment_status(assignment_id):
         return jsonify({"error": "Assignment not found."}), 404
     assignment.status = new_status
     db.session.commit()
+    _emit_assignment_event("assignment:status_changed", assignment)
     return jsonify({"message": f"Assignment status updated to '{new_status}'.",
                     **_serialize_assignment(assignment)}), 200
 
@@ -134,8 +150,17 @@ def delete_assignment(assignment_id):
     assignment = MotherCHWAssignment.query.get(assignment_id)
     if not assignment:
         return jsonify({"error": "Assignment not found."}), 404
+    # Capture data before deletion for the WS event
+    chw_id = assignment.chw_id
+    mother = Mother.query.get(assignment.mother_id)
+    payload = {"id": assignment.id, "chw_id": chw_id, "mother_id": assignment.mother_id}
     db.session.delete(assignment)
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("assignment:deleted", payload, to=f"chw:{chw_id}")
+    if mother:
+        socketio.emit("assignment:deleted", payload, to=f"user:{mother.user_id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Assignment deleted."}), 200
 
 

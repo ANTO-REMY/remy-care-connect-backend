@@ -3,6 +3,7 @@ from models import db, User, Mother
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
+from socket_manager import socketio
 
 bp = Blueprint('mothers', __name__)
 
@@ -125,6 +126,20 @@ def update_mother_profile(mother_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Failed to update profile: {str(e)}"}), 500
+    # ── WebSocket push ────────────────────────────────────────────────────
+    user = User.query.get(mother.user_id)
+    socketio.emit("mother:profile_updated", {
+        "mother_id": mother.id,
+        "user_id": mother.user_id,
+        "name": mother.mother_name,
+        "first_name": user.first_name if user else None,
+        "last_name": user.last_name if user else None,
+        "dob": mother.dob.strftime('%Y-%m-%d'),
+        "due_date": mother.due_date.strftime('%Y-%m-%d'),
+        "location": mother.location,
+        "phone": user.phone_number if user else None,
+    }, to=f"user:{mother.user_id}")
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Mother profile updated successfully."}), 200
 
 @bp.route('/mothers/<int:mother_id>', methods=['DELETE'])
