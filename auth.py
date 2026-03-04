@@ -411,7 +411,7 @@ def get_profile():
         'role': user.role,
         'is_verified': user.is_verified,
         'created_at': user.created_at.isoformat(),
-        'auth_method': request.auth_method
+        'auth_method': getattr(request, 'auth_method', 'jwt')
     }
     
     # Add role-specific data

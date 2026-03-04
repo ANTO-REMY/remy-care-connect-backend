@@ -6,7 +6,7 @@ import random
 
 bp = Blueprint('verifications', __name__)
 
-@bp.route('/api/v1/verifications/send', methods=['POST'])
+@bp.route('/verifications/send', methods=['POST'])
 def send_otp():
     data = request.get_json()
     phone = data.get('phone')
@@ -38,7 +38,7 @@ def send_otp():
     # Here you would send the OTP via SMS
     return jsonify({"message": "OTP sent successfully.", "otp": code}), 200
 
-@bp.route('/api/v1/verifications/verify', methods=['POST'])
+@bp.route('/verifications/verify', methods=['POST'])
 def verify_otp():
     data = request.get_json()
     phone = data.get('phone')
