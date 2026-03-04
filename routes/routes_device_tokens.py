@@ -25,6 +25,8 @@ def register_device_token():
     Upserts — if the token already exists for this user, updates timestamp.
     """
     user = get_current_user()
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
     data = request.get_json() or {}
     fcm_token = data.get('fcm_token', '').strip()
 
@@ -54,14 +56,15 @@ def register_device_token():
 def remove_device_token():
     """
     Remove an FCM device token (call on logout).
-    Body: { "fcm_token": "..." }
+    Query param: ?fcm_token=...
     """
     user = get_current_user()
-    data = request.get_json() or {}
-    fcm_token = data.get('fcm_token', '').strip()
+    if not user:
+        return jsonify({"error": "Authentication required."}), 401
+    fcm_token = request.args.get('fcm_token', '').strip()
 
     if not fcm_token:
-        return jsonify({"error": "fcm_token is required."}), 400
+        return jsonify({"error": "fcm_token query parameter is required."}), 400
 
     db.session.execute(
         db.text("DELETE FROM device_tokens WHERE user_id = :uid AND fcm_token = :token"),
