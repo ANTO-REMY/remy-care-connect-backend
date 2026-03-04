@@ -19,6 +19,21 @@ from socket_manager import socketio
 
 bp = Blueprint('escalations', __name__)
 
+# ── WebSocket helper ──────────────────────────────────────────────────────────
+
+def _emit_escalation_event(event: str, payload: dict, chw_id: int, nurse_id: int, chw=None, nurse=None):
+    """Emit to CHW profile room, nurse profile room, and both user rooms (dual-room pattern)."""
+    socketio.emit(event, payload, to=f"chw:{chw_id}")
+    socketio.emit(event, payload, to=f"nurse:{nurse_id}")
+    if chw is None:
+        chw = CHW.query.get(chw_id)
+    if nurse is None:
+        nurse = Nurse.query.get(nurse_id)
+    if chw:
+        socketio.emit(event, payload, to=f"user:{chw.user_id}")
+    if nurse:
+        socketio.emit(event, payload, to=f"user:{nurse.user_id}")
+
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
 def _serialize(e):
@@ -92,10 +107,9 @@ def create_escalation():
         db.session.commit()
 
         payload = {"message": "Escalation created.", **_serialize(escalation)}
-        # ── WebSocket push ────────────────────────────────────────────────
-        socketio.emit("escalation:created", payload, to=f"nurse:{escalation.nurse_id}")
-        socketio.emit("escalation:created", payload, to=f"chw:{escalation.chw_id}")
-        # ─────────────────────────────────────────────────────────────────
+        # ── WebSocket push (all 4 rooms: profile + user for both CHW and nurse) ──
+        _emit_escalation_event("escalation:created", payload, escalation.chw_id, escalation.nurse_id, chw=chw, nurse=nurse)
+        # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
@@ -167,10 +181,9 @@ def update_escalation_status(escalation_id):
     db.session.commit()
 
     payload = {"message": f"Escalation status updated to '{new_status}'.", **_serialize(e)}
-    # ── WebSocket push ────────────────────────────────────────────────────────
-    socketio.emit("escalation:updated", payload, to=f"nurse:{e.nurse_id}")
-    socketio.emit("escalation:updated", payload, to=f"chw:{e.chw_id}")
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── WebSocket push (all 4 rooms) ──────────────────────────────────────
+    _emit_escalation_event("escalation:updated", payload, e.chw_id, e.nurse_id)
+    # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 
 # ── Update escalation fields ──────────────────────────────────────────────────
@@ -197,10 +210,9 @@ def update_escalation(escalation_id):
     db.session.commit()
 
     payload = {"message": "Escalation updated.", **_serialize(e)}
-    # ── WebSocket push ────────────────────────────────────────────────────────
-    socketio.emit("escalation:updated", payload, to=f"nurse:{e.nurse_id}")
-    socketio.emit("escalation:updated", payload, to=f"chw:{e.chw_id}")
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── WebSocket push (all 4 rooms) ──────────────────────────────────────
+    _emit_escalation_event("escalation:updated", payload, e.chw_id, e.nurse_id)
+    # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 
 # ── Delete escalation ─────────────────────────────────────────────────────────
@@ -217,9 +229,8 @@ def delete_escalation(escalation_id):
     esc_id = e.id
     db.session.delete(e)
     db.session.commit()
-    # ── WebSocket push ────────────────────────────────────────────────────
+    # ── WebSocket push (all 4 rooms) ──────────────────────────────────────
     payload = {"id": esc_id}
-    socketio.emit("escalation:deleted", payload, to=f"nurse:{nurse_id}")
-    socketio.emit("escalation:deleted", payload, to=f"chw:{chw_id}")
-    # ─────────────────────────────────────────────────────────────────────
+    _emit_escalation_event("escalation:deleted", payload, chw_id, nurse_id)
+    # ──────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Escalation deleted."}), 200

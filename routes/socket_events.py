@@ -32,6 +32,8 @@ All event names the server can push to clients
   nurse:profile_updated    payload: nurse profile dict
 """
 
+import logging
+
 from flask import request
 from flask_socketio import join_room, leave_room, emit
 from flask_jwt_extended import decode_token
@@ -231,6 +233,6 @@ def on_request_sync(data):
                 payload["escalations"] = [_escalation_serialize(e) for e in escs]
 
     except Exception:
-        pass  # Partial payload is fine
+        logging.exception("[WS] request_sync error for user %s", user_id)  # Partial payload acceptable
 
     emit("sync", payload)

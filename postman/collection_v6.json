@@ -1,12 +1,12 @@
 {
     "info": {
         "_postman_id": "remy-care-connect-v6",
-        "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments",
-        "description": "Updated March 2026. Added: GET /mothers/{user_id}/assigned_chw for mother dashboard to fetch assigned CHW. Appointments now auto-resolve health_worker_id when created by mother. WebSocket events emit to profile rooms (chw:{id}, nurse:{id}) in addition to user rooms.",
+        "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments / Device Tokens",
+        "description": "Updated March 2026. Added: Device Tokens folder (POST/DELETE /device-tokens for FCM push notification registration). WebSocket dual-room emission fixed for escalations and assignments (now emits to both profile rooms and user rooms). GET /mothers/{user_id}/assigned_chw added. Appointments auto-resolve health_worker_id when created by mother.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         "version": {
             "major": 6,
-            "minor": 1,
+            "minor": 2,
             "patch": 0
         }
     },
@@ -1884,6 +1884,55 @@
                             "path": ["api", "v1", "appointments", "{{appointment_id}}"]
                         },
                         "description": "Hard-delete an appointment. Prefer updating status to 'cancelled' to preserve history."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Device Tokens (FCM)",
+            "description": "Register and remove Firebase Cloud Messaging tokens per device. Used by the push-notification layer to deliver offline alerts. Requires Bearer auth.\n\nNote: Firebase is currently stubbed out — activate by installing firebase-admin on the backend and firebase on the frontend.",
+            "item": [
+                {
+                    "name": "Register Device Token",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" },
+                            { "key": "Authorization", "value": "Bearer {{access_token}}" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"fcm_token\": \"dXNlcl9mY21fdG9rZW5fZXhhbXBsZQ==\",\n  \"device_info\": \"Android 14 / Chrome 125\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/device-tokens",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "device-tokens"]
+                        },
+                        "description": "Upsert an FCM device token for the authenticated user. If the token already exists for this user it is silently updated (ON CONFLICT). Returns 200 on update, 201 on first registration.\n\nBody fields:\n- fcm_token (required): FCM registration token string from the browser/app\n- device_info (optional): human-readable device description"
+                    }
+                },
+                {
+                    "name": "Remove Device Token",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            { "key": "Authorization", "value": "Bearer {{access_token}}" }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/device-tokens?fcm_token={{fcm_token}}",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "device-tokens"],
+                            "query": [
+                                {
+                                    "key": "fcm_token",
+                                    "value": "{{fcm_token}}",
+                                    "description": "The FCM token to deregister (passed as query param, not body)"
+                                }
+                            ]
+                        },
+                        "description": "Remove a previously registered FCM token for the authenticated user. Typically called on logout or when the OS recycles the token. Token is passed as a query-string param because DELETE requests should not carry a body."
                     }
                 }
             ]

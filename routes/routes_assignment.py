@@ -22,11 +22,15 @@ def _serialize_assignment(a):
 
 
 def _emit_assignment_event(event: str, assignment, mother: Mother = None):
-    """Emit an assignment event to all relevant rooms (CHW + mother)."""
+    """Emit an assignment event to all relevant rooms (CHW + mother, dual-room pattern)."""
     payload = _serialize_assignment(assignment)
-    # Always emit to the CHW profile room
+    # CHW profile room
     socketio.emit(event, payload, to=f"chw:{assignment.chw_id}")
-    # Emit to the mother's user room if we can resolve user_id
+    # CHW user room (dual-room: ensures delivery regardless of which room the client joined)
+    chw = CHW.query.get(assignment.chw_id)
+    if chw:
+        socketio.emit(event, payload, to=f"user:{chw.user_id}")
+    # Mother's user room
     if mother is None:
         mother = Mother.query.get(assignment.mother_id)
     if mother:
