@@ -53,6 +53,19 @@ def _get_user_or_error(user_id, label):
         return None, jsonify({"error": f"{label} with id {user_id} not found."}), 404
     return user, None, None
 
+def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
+    """Helper to emit WebSocket events to both user and profile rooms."""
+    socketio.emit(event_name, payload, to=f"user:{mother_id}")
+    socketio.emit(event_name, payload, to=f"user:{health_worker_id}")
+
+    chw_profile = CHW.query.filter_by(user_id=health_worker_id).first()
+    if chw_profile:
+        socketio.emit(event_name, payload, to=f"chw:{chw_profile.id}")
+
+    nurse_profile = Nurse.query.filter_by(user_id=health_worker_id).first()
+    if nurse_profile:
+        socketio.emit(event_name, payload, to=f"nurse:{nurse_profile.id}")
+
 # ── Create appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments', methods=['POST'])
@@ -142,19 +155,7 @@ def create_appointment():
         db.session.commit()
 
         payload = {"message": "Appointment created.", **_serialize(appt)}
-        # ── WebSocket push ────────────────────────────────────────────────
-        # Emit to user rooms
-        socketio.emit("appointment:created", payload, to=f"user:{appt.mother_id}")
-        socketio.emit("appointment:created", payload, to=f"user:{appt.health_worker_id}")
-        
-        # Also emit to profile-specific rooms (CHW/Nurse join these)
-        chw_profile = CHW.query.filter_by(user_id=appt.health_worker_id).first()
-        if chw_profile:
-            socketio.emit("appointment:created", payload, to=f"chw:{chw_profile.id}")
-        nurse_profile = Nurse.query.filter_by(user_id=appt.health_worker_id).first()
-        if nurse_profile:
-            socketio.emit("appointment:created", payload, to=f"nurse:{nurse_profile.id}")
-        # ─────────────────────────────────────────────────────────────────
+        _emit_appointment_event("appointment:created", payload, appt.mother_id, appt.health_worker_id)
         return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
@@ -237,15 +238,7 @@ def update_appointment(appt_id):
     db.session.commit()
 
     payload = {"message": "Appointment updated.", **_serialize(a)}
-    # ── WebSocket push ────────────────────────────────────────────────────
-    socketio.emit("appointment:updated", payload, to=f"user:{a.mother_id}")
-    socketio.emit("appointment:updated", payload, to=f"user:{a.health_worker_id}")    # Also emit to profile rooms
-    chw_profile = CHW.query.filter_by(user_id=a.health_worker_id).first()
-    if chw_profile:
-        socketio.emit("appointment:updated", payload, to=f"chw:{chw_profile.id}")
-    nurse_profile = Nurse.query.filter_by(user_id=a.health_worker_id).first()
-    if nurse_profile:
-        socketio.emit("appointment:updated", payload, to=f"nurse:{nurse_profile.id}")    # ─────────────────────────────────────────────────────────────────────
+    _emit_appointment_event("appointment:updated", payload, a.mother_id, a.health_worker_id)
     return jsonify(payload), 200
 
 # ── Update status only ────────────────────────────────────────────────────────
@@ -272,15 +265,7 @@ def update_appointment_status(appt_id):
     db.session.commit()
 
     payload = {"message": f"Appointment status updated to '{new_status}'.", **_serialize(a)}
-    # ── WebSocket push ────────────────────────────────────────────────────
-    socketio.emit("appointment:updated", payload, to=f"user:{a.mother_id}")
-    socketio.emit("appointment:updated", payload, to=f"user:{a.health_worker_id}")    # Also emit to profile rooms
-    chw_profile = CHW.query.filter_by(user_id=a.health_worker_id).first()
-    if chw_profile:
-        socketio.emit("appointment:updated", payload, to=f"chw:{chw_profile.id}")
-    nurse_profile = Nurse.query.filter_by(user_id=a.health_worker_id).first()
-    if nurse_profile:
-        socketio.emit("appointment:updated", payload, to=f"nurse:{nurse_profile.id}")    # ─────────────────────────────────────────────────────────────────────
+    _emit_appointment_event("appointment:updated", payload, a.mother_id, a.health_worker_id)
     return jsonify(payload), 200
 
 # ── Delete appointment ────────────────────────────────────────────────────────

@@ -6,6 +6,10 @@ from sqlalchemy.exc import IntegrityError
 
 bp = Blueprint('mothers', __name__)
 
+def _split_full_name(full_name: str):
+    parts = full_name.strip().split(' ', 1)
+    return parts[0], parts[1] if len(parts) > 1 else ''
+
 @bp.route('/mothers/me', methods=['GET'])
 @require_auth
 def get_my_mother_profile():
@@ -23,7 +27,7 @@ def get_my_mother_profile():
         "dob":        mother.dob.strftime('%Y-%m-%d'),
         "due_date":   mother.due_date.strftime('%Y-%m-%d'),
         "location":   mother.location,
-        "phone":      user.phone_number,
+        "phone_number": user.phone_number,
     }), 200
 
 @bp.route('/mothers/complete-profile', methods=['POST'])
@@ -77,7 +81,7 @@ def get_mother_profile(mother_id):
         "dob": mother.dob.strftime('%Y-%m-%d'),
         "due_date": mother.due_date.strftime('%Y-%m-%d'),
         "location": mother.location,
-        "phone": user.phone_number
+        "phone_number": user.phone_number
     }), 200
 
 @bp.route('/mothers/<int:mother_id>', methods=['PUT'])
@@ -89,10 +93,8 @@ def update_mother_profile(mother_id):
     data = request.get_json()
     updated = False
     if 'full_name' in data and data['full_name']:
-        parts = data['full_name'].strip().split(' ', 1)
         user = User.query.get(mother.user_id)
-        user.first_name = parts[0]
-        user.last_name  = parts[1] if len(parts) > 1 else ''
+        user.first_name, user.last_name = _split_full_name(data['full_name'])
         mother.mother_name = data['full_name'].strip()
         updated = True
     elif 'first_name' in data or 'last_name' in data:

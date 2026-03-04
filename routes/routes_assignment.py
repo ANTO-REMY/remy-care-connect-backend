@@ -40,7 +40,7 @@ def get_assigned_mothers(chw_id):
             "mother_id": mother.id,
             "user_id": mother.user_id,        # users.id — needed for appointment creation
             "name": mother.mother_name,
-            "phone": user.phone_number if user else None,
+            "phone_number": user.phone_number if user else None,
             "location": mother.location,
             "status": a.status,
             "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
@@ -203,7 +203,7 @@ def get_assigned_chw_for_mother(user_id):
             "user_id": chw.user_id,
             "profile_id": chw.id,
             "name": chw.chw_name,
-            "phone": chw_user.phone_number if chw_user else None,
+            "phone_number": chw_user.phone_number if chw_user else None,
             "location": chw.location,
         },
         "assignment_id": assignment.id,
