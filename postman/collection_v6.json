@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "remy-care-connect-v6",
         "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments / Device Tokens",
-        "description": "Updated March 2026. Added: Device Tokens folder (POST/DELETE /device-tokens for FCM push notification registration). WebSocket dual-room emission fixed for escalations and assignments (now emits to both profile rooms and user rooms). GET /mothers/{user_id}/assigned_chw added. Appointments auto-resolve health_worker_id when created by mother.",
+        "description": "Updated March 2026. Added: Device Tokens folder (POST/DELETE /device-tokens for FCM push notification registration). WebSocket dual-room emission fixed for escalations and assignments (now emits to both profile rooms and user rooms). GET /mothers/{user_id}/assigned_chw added. Appointments auto-resolve health_worker_id when created by mother. Appointment dashboard delete/restore endpoints added: POST/DELETE /appointments/{id}/delete.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
         "version": {
             "major": 6,
@@ -1814,11 +1814,13 @@
                                 { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
                                 { "key": "health_worker_id", "value": "{{chw_id}}", "disabled": true },
                                 { "key": "status", "value": "scheduled" },
+                                { "key": "include_deleted", "value": "true", "disabled": true },
+                                { "key": "deleted_only", "value": "true", "disabled": true },
                                 { "key": "from", "value": "2026-03-01", "disabled": true },
                                 { "key": "to", "value": "2026-03-31", "disabled": true }
                             ]
                         },
-                        "description": "List appointments with optional filters: mother_id, health_worker_id, status (scheduled/completed/cancelled/rescheduled), from (YYYY-MM-DD), to (YYYY-MM-DD)."
+                        "description": "List appointments with optional filters: mother_id, health_worker_id, status (scheduled/completed/cancelled/rescheduled), include_deleted, deleted_only, from (YYYY-MM-DD), to (YYYY-MM-DD)."
                     }
                 },
                 {
@@ -1874,6 +1876,39 @@
                     }
                 },
                 {
+                    "name": "Delete Appointment (Dashboard Only)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"reason\": \"deleted_from_chw_dashboard\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "delete"]
+                        },
+                        "description": "Non-destructive delete. Removes appointment from the current user's dashboard only. Record remains in DB and for other users."
+                    }
+                },
+                {
+                    "name": "Restore Deleted Appointment (Dashboard)",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
+                            "host": ["{{base_url}}"],
+                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "delete"]
+                        },
+                        "description": "Restore a dashboard-deleted appointment for the current user. Restore window is 15 days."
+                    }
+                },
+                {
                     "name": "Delete Appointment",
                     "request": {
                         "method": "DELETE",
@@ -1883,7 +1918,7 @@
                             "host": ["{{base_url}}"],
                             "path": ["api", "v1", "appointments", "{{appointment_id}}"]
                         },
-                        "description": "Hard-delete an appointment. Prefer updating status to 'cancelled' to preserve history."
+                        "description": "Hard delete endpoint is intentionally disabled and returns 405. Use POST /appointments/{id}/delete instead."
                     }
                 }
             ]

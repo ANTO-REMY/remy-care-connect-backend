@@ -130,14 +130,14 @@ def register():
         db.session.commit()
         
         # In production, send OTP via SMS/WhatsApp
-        # For now, return it in response for testing
+        # OTP is printed to the server console for development — do NOT return it in the response
+        print(f"[DEV] OTP for {phone_number}: {otp_code}")
         return jsonify({
             'message': 'Registration successful. Please verify your phone number.',
             'user_id': user.id,
             'role': role,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'otp_code': otp_code,  # Remove this in production
             'expires_in': '10 minutes'
         }), 201
         
@@ -473,9 +473,10 @@ def resend_otp():
     
     db.session.add(verification)
     db.session.commit()
-    
+
+    # OTP is printed to the server console for development
+    print(f"[DEV] Resent OTP for {phone_number}: {otp_code}")
     return jsonify({
         'message': 'New OTP sent successfully',
-        'otp_code': otp_code,  # Remove this in production
         'expires_in': '10 minutes'
     }), 200

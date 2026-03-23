@@ -41,7 +41,7 @@ from jwt.exceptions import DecodeError, ExpiredSignatureError
 
 from socket_manager import socketio
 from models import (
-    db, AppointmentSchedule, Escalation, CHW, Nurse, Mother, User,
+    db, AppointmentSchedule, AppointmentHiddenForUser, Escalation, CHW, Nurse, Mother, User,
 )
 from models_standard import MotherCHWAssignment
 from datetime import datetime, timezone, timedelta
@@ -197,18 +197,23 @@ def on_request_sync(data):
         return
 
     payload = {"role": role, "user_id": user_id}
+    hidden_subq = db.session.query(AppointmentHiddenForUser.appointment_id).filter_by(user_id=user_id)
 
     try:
         if role == "mother":
             # Appointments where mother_id = user_id
-            appts = AppointmentSchedule.query.filter_by(mother_id=user_id).all()
+            appts = AppointmentSchedule.query.filter_by(mother_id=user_id).filter(
+                ~AppointmentSchedule.id.in_(hidden_subq)
+            ).all()
             payload["appointments"] = [_appt_serialize(a) for a in appts]
 
         elif role == "chw":
             profile_id = data.get("profile_id")
             if profile_id:
                 # Appointments where health_worker_id = user_id
-                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).all()
+                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).filter(
+                    ~AppointmentSchedule.id.in_(hidden_subq)
+                ).all()
                 payload["appointments"] = [_appt_serialize(a) for a in appts]
                 # Escalations where chw_id = profile_id
                 escs = Escalation.query.filter_by(chw_id=profile_id).all()
@@ -226,7 +231,9 @@ def on_request_sync(data):
             profile_id = data.get("profile_id")
             if profile_id:
                 # Appointments where health_worker_id = user_id
-                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).all()
+                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).filter(
+                    ~AppointmentSchedule.id.in_(hidden_subq)
+                ).all()
                 payload["appointments"] = [_appt_serialize(a) for a in appts]
                 # Escalations where nurse_id = profile_id
                 escs = Escalation.query.filter_by(nurse_id=profile_id).all()

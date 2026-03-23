@@ -13,17 +13,18 @@ Endpoints:
   GET    /appointments/<id>       – get single
   PATCH  /appointments/<id>       – update
   PATCH  /appointments/<id>/status – update status only
-  DELETE /appointments/<id>       – delete
+    DELETE /appointments/<id>       – hard delete (disabled)
 """
 
 from flask import Blueprint, jsonify, request
-from models import db, AppointmentSchedule, User, Mother, CHW, Nurse
+from models import db, AppointmentSchedule, AppointmentHiddenForUser, User, Mother, CHW, Nurse
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
 
 bp = Blueprint('appointments', __name__)
+HIDDEN_RETENTION_DAYS = 15
 
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,17 @@ def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
     if nurse_profile:
         socketio.emit(event_name, payload, to=f"nurse:{nurse_profile.id}")
 
+
+def _can_manage_appointment(current_user, appointment):
+    """Only related users can manage visibility/deletion for an appointment."""
+    if not current_user or not appointment:
+        return False
+    return current_user.id in {
+        appointment.mother_id,
+        appointment.health_worker_id,
+        appointment.created_by_user_id,
+    }
+
 # ── Create appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments', methods=['POST'])
@@ -93,8 +105,8 @@ def create_appointment():
     status = data.get('status', 'scheduled')
     if status == 'cancelled':
         status = 'canceled'
-    if status not in ('scheduled', 'completed', 'canceled', 'rescheduled'):
-        return jsonify({"error": "status must be scheduled | completed | canceled | rescheduled"}), 400
+    if status not in ('scheduled', 'completed', 'canceled'):
+        return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
 
     # Validate mother user exists
     mother_user = User.query.get(data['mother_id'])
@@ -164,12 +176,34 @@ def create_appointment():
 # ── List appointments ─────────────────────────────────────────────────────────
 
 @bp.route('/appointments', methods=['GET'])
+@require_auth
 def list_appointments():
     """
     Filter by: ?mother_id= ?health_worker_id= ?status= ?from= ?to=
     from / to are ISO8601 dates to bound scheduled_time.
     """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     q = AppointmentSchedule.query
+    include_hidden = str(request.args.get('include_hidden', 'false')).lower() in ('1', 'true', 'yes')
+    hidden_only = str(request.args.get('hidden_only', 'false')).lower() in ('1', 'true', 'yes')
+    include_deleted = str(request.args.get('include_deleted', 'false')).lower() in ('1', 'true', 'yes')
+    deleted_only = str(request.args.get('deleted_only', 'false')).lower() in ('1', 'true', 'yes')
+    include_hidden = include_hidden or include_deleted
+    hidden_only = hidden_only or deleted_only
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
+
+    if hidden_only:
+        hidden_subq = db.session.query(AppointmentHiddenForUser.appointment_id).filter(
+            AppointmentHiddenForUser.user_id == current_user.id,
+            AppointmentHiddenForUser.hidden_at >= cutoff,
+        )
+        q = q.filter(AppointmentSchedule.id.in_(hidden_subq))
+    elif not include_hidden:
+        hidden_subq = db.session.query(AppointmentHiddenForUser.appointment_id).filter_by(user_id=current_user.id)
+        q = q.filter(~AppointmentSchedule.id.in_(hidden_subq))
     if mother_id := request.args.get('mother_id', type=int):
         q = q.filter_by(mother_id=mother_id)
     if hw_id := request.args.get('health_worker_id', type=int):
@@ -257,8 +291,8 @@ def update_appointment_status(appt_id):
     new_status = data.get('status')
     if new_status == 'cancelled':
         new_status = 'canceled'
-    if new_status not in ('scheduled', 'completed', 'canceled', 'rescheduled'):
-        return jsonify({"error": "status must be scheduled | completed | canceled | rescheduled"}), 400
+    if new_status not in ('scheduled', 'completed', 'canceled'):
+        return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
 
     a.status = new_status
     a.updated_at = datetime.now(timezone.utc)
@@ -268,29 +302,83 @@ def update_appointment_status(appt_id):
     _emit_appointment_event("appointment:updated", payload, a.mother_id, a.health_worker_id)
     return jsonify(payload), 200
 
+
+@bp.route('/appointments/<int:appt_id>/hide', methods=['POST'])
+@bp.route('/appointments/<int:appt_id>/delete', methods=['POST'])
+@require_auth
+def hide_appointment(appt_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    a = AppointmentSchedule.query.get(appt_id)
+    if not a:
+        return jsonify({"error": "Appointment not found."}), 404
+    if not _can_manage_appointment(current_user, a):
+        return jsonify({"error": "Forbidden."}), 403
+
+    existing = AppointmentHiddenForUser.query.filter_by(
+        appointment_id=appt_id,
+        user_id=current_user.id,
+    ).first()
+    if existing:
+        existing.hidden_at = datetime.now(timezone.utc)
+        existing.reason = (request.get_json(silent=True) or {}).get('reason') or existing.reason
+        db.session.commit()
+        return jsonify({"message": "Appointment already deleted from your dashboard.", "appointment_id": appt_id}), 200
+
+    hidden = AppointmentHiddenForUser()
+    hidden.appointment_id = appt_id
+    hidden.user_id = current_user.id
+    hidden.reason = (request.get_json(silent=True) or {}).get('reason')
+    db.session.add(hidden)
+    db.session.commit()
+
+    payload = {"id": appt_id, "user_id": current_user.id}
+    socketio.emit("appointment:hidden", payload, to=f"user:{current_user.id}")
+    socketio.emit("appointment:deleted", payload, to=f"user:{current_user.id}")
+    return jsonify({"message": "Appointment deleted from your dashboard.", "appointment_id": appt_id}), 200
+
+
+@bp.route('/appointments/<int:appt_id>/hide', methods=['DELETE'])
+@bp.route('/appointments/<int:appt_id>/delete', methods=['DELETE'])
+@require_auth
+def unhide_appointment(appt_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    a = AppointmentSchedule.query.get(appt_id)
+    if not a:
+        return jsonify({"error": "Appointment not found."}), 404
+    if not _can_manage_appointment(current_user, a):
+        return jsonify({"error": "Forbidden."}), 403
+
+    hidden = AppointmentHiddenForUser.query.filter_by(
+        appointment_id=appt_id,
+        user_id=current_user.id,
+    ).first()
+    if not hidden:
+        return jsonify({"message": "Appointment is not deleted from your dashboard.", "appointment_id": appt_id}), 200
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
+    hidden_at = hidden.hidden_at if hidden.hidden_at.tzinfo else hidden.hidden_at.replace(tzinfo=timezone.utc)
+    if hidden_at < cutoff:
+        return jsonify({
+            "error": f"Restore window expired. Deleted appointments are restorable for {HIDDEN_RETENTION_DAYS} days only.",
+            "appointment_id": appt_id,
+        }), 410
+
+    db.session.delete(hidden)
+    db.session.commit()
+    return jsonify({"message": "Appointment restored to your dashboard.", "appointment_id": appt_id}), 200
+
 # ── Delete appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments/<int:appt_id>', methods=['DELETE'])
 @require_auth
 def delete_appointment(appt_id):
-    a = AppointmentSchedule.query.get(appt_id)
-    if not a:
-        return jsonify({"error": "Appointment not found."}), 404
-    # Capture IDs before deletion for the WS event
-    mother_id = a.mother_id
-    hw_id = a.health_worker_id
-    appt_id_val = a.id
-    db.session.delete(a)
-    db.session.commit()
-    # ── WebSocket push ────────────────────────────────────────────────────
-    payload = {"id": appt_id_val}
-    socketio.emit("appointment:deleted", payload, to=f"user:{mother_id}")
-    socketio.emit("appointment:deleted", payload, to=f"user:{hw_id}")
-    chw_profile = CHW.query.filter_by(user_id=hw_id).first()
-    if chw_profile:
-        socketio.emit("appointment:deleted", payload, to=f"chw:{chw_profile.id}")
-    nurse_profile = Nurse.query.filter_by(user_id=hw_id).first()
-    if nurse_profile:
-        socketio.emit("appointment:deleted", payload, to=f"nurse:{nurse_profile.id}")
-    # ─────────────────────────────────────────────────────────────────────
-    return jsonify({"message": "Appointment deleted."}), 200
+    return jsonify({
+        "error": "Hard delete is disabled for appointments.",
+        "message": "Use POST /appointments/<id>/delete to remove it from your dashboard.",
+    }), 405

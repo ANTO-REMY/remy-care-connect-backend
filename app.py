@@ -33,7 +33,15 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    CORS(app, origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"], supports_credentials=True)
+    # CORS: origins read from CORS_ORIGINS env var (comma-separated).
+    # In production set: CORS_ORIGINS=https://your-app.vercel.app
+    # Falls back to local dev origins if the variable is not set.
+    _cors_origins_raw = os.getenv(
+        'CORS_ORIGINS',
+        'http://localhost:5173,http://localhost:8080,http://localhost:3000'
+    )
+    _cors_origins = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()]
+    CORS(app, origins=_cors_origins, supports_credentials=True)
     socketio.init_app(app)
 
     from routes.routes_health import bp as health_bp

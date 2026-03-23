@@ -160,6 +160,22 @@ class AppointmentSchedule(db.Model):
     creator_user       = db.relationship('User', foreign_keys=[created_by_user_id],
                                          backref=db.backref('appointments_created', lazy=True))
 
+
+class AppointmentHiddenForUser(db.Model):
+    __tablename__ = 'appointment_hidden_for_user'
+    id = db.Column(db.Integer, primary_key=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey('appointment_schedule.id', ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    hidden_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+    reason = db.Column(db.Text)
+
+    __table_args__ = (
+        db.UniqueConstraint('appointment_id', 'user_id', name='uq_appointment_hidden_user'),
+    )
+
+    appointment = db.relationship('AppointmentSchedule', backref=db.backref('hidden_for_users', lazy=True, cascade='all, delete-orphan'))
+    user = db.relationship('User', backref=db.backref('hidden_appointments', lazy=True, cascade='all, delete-orphan'))
+
 # Escalation model: CHW escalates a mother's case to a nurse
 class Escalation(db.Model):
     __tablename__ = 'escalations'
