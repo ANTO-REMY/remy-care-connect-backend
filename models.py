@@ -244,6 +244,22 @@ class DailyCheckin(db.Model):
 
     mother = db.relationship('Mother', backref=db.backref('checkins', lazy=True))
 
+class DailyCheckinHiddenForUser(db.Model):
+    """Per-user soft-delete for daily check-ins."""
+    __tablename__ = 'daily_checkin_hidden_for_user'
+    id = db.Column(db.Integer, primary_key=True)
+    checkin_id = db.Column(db.Integer, db.ForeignKey('daily_checkin.id', ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    hidden_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+    reason = db.Column(db.Text)
+
+    __table_args__ = (
+        db.UniqueConstraint('checkin_id', 'user_id', name='uq_daily_checkin_hidden_user'),
+    )
+
+    checkin = db.relationship('DailyCheckin', backref=db.backref('hidden_for_users', lazy=True, cascade='all, delete-orphan'))
+    user = db.relationship('User', backref=db.backref('hidden_checkins', lazy=True, cascade='all, delete-orphan'))
+
 # MedicalRecordType model: extensible enum for record types
 class MedicalRecordType(db.Model):
     __tablename__ = 'medical_record_type'

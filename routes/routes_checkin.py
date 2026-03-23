@@ -10,17 +10,18 @@ Daily check-in CRUD for the RemyCareConnect app.
 """
 
 from flask import Blueprint, request, jsonify
-from models import db, DailyCheckin, Mother, CHW, User
+from models import db, DailyCheckin, Mother, CHW, User, DailyCheckinHiddenForUser
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, get_current_user
 from sqlalchemy import desc
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
 
 bp = Blueprint('checkin', __name__)
 
 VALID_RESPONSES = ('ok', 'not_ok')
 VALID_CHANNELS  = ('app', 'whatsapp', 'sms')
+HIDDEN_RETENTION_DAYS = 15
 
 
 def _serialize(c, mother_name: str | None = None):
@@ -133,8 +134,17 @@ def chw_checkins(chw_id):
     """
     Returns the most recent check-ins (default: last 50) across all mothers
     currently assigned to this CHW, ordered newest first.
+    ?deleted_only=true  – show only soft-deleted for current user
+    ?include_deleted=true – include soft-deleted
     """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     limit = min(int(request.args.get('limit', 50)), 200)
+    include_deleted = str(request.args.get('include_deleted', 'false')).lower() in ('1', 'true', 'yes')
+    deleted_only = str(request.args.get('deleted_only', 'false')).lower() in ('1', 'true', 'yes')
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
 
     # Get all active mother IDs assigned to this CHW
     assignments = (MotherCHWAssignment.query
@@ -145,9 +155,20 @@ def chw_checkins(chw_id):
     if not mother_ids:
         return jsonify({"checkins": [], "total": 0}), 200
 
-    checkins = (DailyCheckin.query
-                .filter(DailyCheckin.mother_id.in_(mother_ids))
-                .order_by(desc(DailyCheckin.created_at))
+    q = (DailyCheckin.query
+         .filter(DailyCheckin.mother_id.in_(mother_ids)))
+
+    if deleted_only:
+        hidden_subq = db.session.query(DailyCheckinHiddenForUser.checkin_id).filter(
+            DailyCheckinHiddenForUser.user_id == current_user.id,
+            DailyCheckinHiddenForUser.hidden_at >= cutoff,
+        )
+        q = q.filter(DailyCheckin.id.in_(hidden_subq))
+    elif not include_deleted:
+        hidden_subq = db.session.query(DailyCheckinHiddenForUser.checkin_id).filter_by(user_id=current_user.id)
+        q = q.filter(~DailyCheckin.id.in_(hidden_subq))
+
+    checkins = (q.order_by(desc(DailyCheckin.created_at))
                 .limit(limit)
                 .all())
 
@@ -161,3 +182,79 @@ def chw_checkins(chw_id):
         ],
         "total": len(checkins),
     }), 200
+
+
+# ── Soft-delete check-in (per-user) ──────────────────────────────────────────
+
+@bp.route('/checkins/<int:checkin_id>/delete', methods=['POST'])
+@require_auth
+def soft_delete_checkin(checkin_id):
+    """Remove from the current user's dashboard (non-destructive, per-user)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    checkin = DailyCheckin.query.get(checkin_id)
+    if not checkin:
+        return jsonify({"error": "Check-in not found."}), 404
+
+    # A CHW can hide any check-in from their assigned mothers.
+    # A mother can hide their own check-ins.
+    is_mother_of_checkin = current_user.mother and current_user.mother.id == checkin.mother_id
+    is_assigned_chw = False
+    if current_user.chw:
+        assignment = MotherCHWAssignment.query.filter_by(
+            mother_id=checkin.mother_id, chw_id=current_user.chw.id, status='active'
+        ).first()
+        is_assigned_chw = assignment is not None
+
+    if not is_mother_of_checkin and not is_assigned_chw:
+        return jsonify({"error": "Forbidden. You can only hide your own check-ins or those of assigned mothers."}), 403
+
+    existing = DailyCheckinHiddenForUser.query.filter_by(
+        checkin_id=checkin_id, user_id=current_user.id
+    ).first()
+    if existing:
+        existing.hidden_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({"message": "Check-in already deleted from your dashboard.", "checkin_id": checkin_id}), 200
+
+    hidden = DailyCheckinHiddenForUser()
+    hidden.checkin_id = checkin_id
+    hidden.user_id = current_user.id
+    hidden.reason = (request.get_json(silent=True) or {}).get('reason')
+    db.session.add(hidden)
+    db.session.commit()
+
+    payload = {"id": checkin_id, "user_id": current_user.id}
+    socketio.emit("checkin:deleted", payload, to=f"user:{current_user.id}")
+    return jsonify({"message": "Check-in deleted from your dashboard.", "checkin_id": checkin_id}), 200
+
+
+@bp.route('/checkins/<int:checkin_id>/delete', methods=['DELETE'])
+@require_auth
+def restore_checkin(checkin_id):
+    """Restore a previously soft-deleted check-in for the current user."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    hidden = DailyCheckinHiddenForUser.query.filter_by(
+        checkin_id=checkin_id, user_id=current_user.id
+    ).first()
+    if not hidden:
+        return jsonify({"message": "Check-in is not deleted from your dashboard."}), 200
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
+    hidden_at = hidden.hidden_at if hidden.hidden_at.tzinfo else hidden.hidden_at.replace(tzinfo=timezone.utc)
+    if hidden_at < cutoff:
+        return jsonify({
+            "error": f"Restore window expired. Deleted check-ins are restorable for {HIDDEN_RETENTION_DAYS} days only.",
+        }), 410
+
+    db.session.delete(hidden)
+    db.session.commit()
+
+    payload = {"id": checkin_id, "user_id": current_user.id}
+    socketio.emit("checkin:restored", payload, to=f"user:{current_user.id}")
+    return jsonify({"message": "Check-in restored to your dashboard."}), 200
