@@ -281,7 +281,7 @@ def update_appointment(appt_id):
 @require_auth
 def update_appointment_status(appt_id):
     """
-    Body: { "status": "scheduled" | "completed" | "cancelled" | "rescheduled" }
+    Body: { "status": "scheduled" | "completed" | "canceled" }
     """
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
