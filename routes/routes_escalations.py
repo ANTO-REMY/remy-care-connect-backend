@@ -12,12 +12,13 @@ Escalation flow:
 """
 
 from flask import Blueprint, jsonify, request
-from models import db, CHW, Nurse, Mother, Escalation
+from models import db, CHW, Nurse, Mother, Escalation, EscalationHiddenForUser
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
 
 bp = Blueprint('escalations', __name__)
+HIDDEN_RETENTION_DAYS = 15
 
 # ── WebSocket helper ──────────────────────────────────────────────────────────
 
@@ -118,12 +119,33 @@ def create_escalation():
 # ── List escalations ──────────────────────────────────────────────────────────
 
 @bp.route('/escalations', methods=['GET'])
+@require_auth
 def list_escalations():
     """
     List escalations.  Optional query params:
       ?nurse_id=  ?chw_id=  ?mother_id=  ?status=  ?priority=
+      ?deleted_only=true  – show only soft-deleted for current user
+      ?include_deleted=true – include soft-deleted
     """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    include_deleted = str(request.args.get('include_deleted', 'false')).lower() in ('1', 'true', 'yes')
+    deleted_only = str(request.args.get('deleted_only', 'false')).lower() in ('1', 'true', 'yes')
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
+
     q = Escalation.query
+    if deleted_only:
+        hidden_subq = db.session.query(EscalationHiddenForUser.escalation_id).filter(
+            EscalationHiddenForUser.user_id == current_user.id,
+            EscalationHiddenForUser.hidden_at >= cutoff,
+        )
+        q = q.filter(Escalation.id.in_(hidden_subq))
+    elif not include_deleted:
+        hidden_subq = db.session.query(EscalationHiddenForUser.escalation_id).filter_by(user_id=current_user.id)
+        q = q.filter(~Escalation.id.in_(hidden_subq))
+
     if nurse_id := request.args.get('nurse_id', type=int):
         q = q.filter_by(nurse_id=nurse_id)
     if chw_id := request.args.get('chw_id', type=int):
@@ -215,22 +237,90 @@ def update_escalation(escalation_id):
     # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 
-# ── Delete escalation ─────────────────────────────────────────────────────────
+# ── Soft-delete escalation (per-user) ────────────────────────────────────────
+
+@bp.route('/escalations/<int:escalation_id>/delete', methods=['POST'])
+@require_auth
+def soft_delete_escalation(escalation_id):
+    """Remove from the current user's dashboard (non-destructive, per-user)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    e = Escalation.query.get(escalation_id)
+    if not e:
+        return jsonify({"error": "Escalation not found."}), 404
+
+    # Only the CHW (user_id) or nurse (user_id) involved can hide it
+    chw = CHW.query.get(e.chw_id)
+    nurse = Nurse.query.get(e.nurse_id)
+    allowed_user_ids = set()
+    if chw:
+        allowed_user_ids.add(chw.user_id)
+    if nurse:
+        allowed_user_ids.add(nurse.user_id)
+    if current_user.id not in allowed_user_ids:
+        return jsonify({"error": "Forbidden."}), 403
+
+    existing = EscalationHiddenForUser.query.filter_by(
+        escalation_id=escalation_id, user_id=current_user.id
+    ).first()
+    if existing:
+        existing.hidden_at = datetime.now(timezone.utc)
+        existing.reason = (request.get_json(silent=True) or {}).get('reason') or existing.reason
+        db.session.commit()
+        return jsonify({"message": "Escalation already deleted from your dashboard.", "escalation_id": escalation_id}), 200
+
+    hidden = EscalationHiddenForUser()
+    hidden.escalation_id = escalation_id
+    hidden.user_id = current_user.id
+    hidden.reason = (request.get_json(silent=True) or {}).get('reason')
+    db.session.add(hidden)
+    db.session.commit()
+
+    payload = {"id": escalation_id, "user_id": current_user.id}
+    socketio.emit("escalation:deleted", payload, to=f"user:{current_user.id}")
+    return jsonify({"message": "Escalation deleted from your dashboard.", "escalation_id": escalation_id}), 200
+
+
+@bp.route('/escalations/<int:escalation_id>/delete', methods=['DELETE'])
+@require_auth
+def restore_escalation(escalation_id):
+    """Restore a previously soft-deleted escalation for current user."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    e = Escalation.query.get(escalation_id)
+    if not e:
+        return jsonify({"error": "Escalation not found."}), 404
+
+    hidden = EscalationHiddenForUser.query.filter_by(
+        escalation_id=escalation_id, user_id=current_user.id
+    ).first()
+    if not hidden:
+        return jsonify({"message": "Escalation is not deleted from your dashboard.", "escalation_id": escalation_id}), 200
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
+    hidden_at = hidden.hidden_at if hidden.hidden_at.tzinfo else hidden.hidden_at.replace(tzinfo=timezone.utc)
+    if hidden_at < cutoff:
+        return jsonify({
+            "error": f"Restore window expired. Deleted escalations are restorable for {HIDDEN_RETENTION_DAYS} days only.",
+            "escalation_id": escalation_id,
+        }), 410
+
+    db.session.delete(hidden)
+    db.session.commit()
+    return jsonify({"message": "Escalation restored to your dashboard.", "escalation_id": escalation_id}), 200
+
+
+# ── Hard-delete (disabled) ────────────────────────────────────────────────────
 
 @bp.route('/escalations/<int:escalation_id>', methods=['DELETE'])
 @require_auth
 def delete_escalation(escalation_id):
-    e = Escalation.query.get(escalation_id)
-    if not e:
-        return jsonify({"error": "Escalation not found."}), 404
-    # Capture IDs before deletion for the WS event
-    nurse_id = e.nurse_id
-    chw_id = e.chw_id
-    esc_id = e.id
-    db.session.delete(e)
-    db.session.commit()
-    # ── WebSocket push (all 4 rooms) ──────────────────────────────────────
-    payload = {"id": esc_id}
-    _emit_escalation_event("escalation:deleted", payload, chw_id, nurse_id)
-    # ──────────────────────────────────────────────────────────────────────
-    return jsonify({"message": "Escalation deleted."}), 200
+    """Hard delete disabled — use POST /escalations/<id>/delete instead."""
+    return jsonify({
+        "error": "Hard delete is disabled for escalations.",
+        "message": "Use POST /escalations/<id>/delete to remove it from your dashboard.",
+    }), 405

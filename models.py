@@ -212,6 +212,23 @@ class Escalation(db.Model):
     nurse  = db.relationship('Nurse',  backref=db.backref('escalations_received', lazy=True))
     mother = db.relationship('Mother', backref=db.backref('escalations', lazy=True))
 
+
+class EscalationHiddenForUser(db.Model):
+    """Per-user soft-delete for escalations. Hiding is per-user — it never removes the source row."""
+    __tablename__ = 'escalation_hidden_for_user'
+    id = db.Column(db.Integer, primary_key=True)
+    escalation_id = db.Column(db.Integer, db.ForeignKey('escalations.id', ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    hidden_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+    reason = db.Column(db.Text)
+
+    __table_args__ = (
+        db.UniqueConstraint('escalation_id', 'user_id', name='uq_escalation_hidden_user'),
+    )
+
+    escalation = db.relationship('Escalation', backref=db.backref('hidden_for_users', lazy=True, cascade='all, delete-orphan'))
+    user = db.relationship('User', backref=db.backref('hidden_escalations', lazy=True, cascade='all, delete-orphan'))
+
 # DailyCheckin model: daily health status from mothers
 class DailyCheckin(db.Model):
     __tablename__ = 'daily_checkin'
