@@ -330,6 +330,15 @@ def login():
     # Create session token for database tracking (not Flask session)
     session_token = create_user_session(user.id, device_info, ip_address)
     
+    # Get profile_id based on role
+    profile_id = None
+    if user.role == 'mother' and user.mother:
+        profile_id = user.mother.id
+    elif user.role == 'chw' and user.chw:
+        profile_id = user.chw.id
+    elif user.role == 'nurse' and user.nurse:
+        profile_id = user.nurse.id
+    
     # Update last login
     user.updated_at = datetime.now(timezone.utc)
     db.session.commit()
@@ -344,7 +353,8 @@ def login():
             'first_name': user.first_name,
             'last_name': user.last_name,
             'name': user.name,
-            'role': user.role
+            'role': user.role,
+            'profile_id': profile_id
         }
     }), 200
 
@@ -404,11 +414,21 @@ def get_profile():
     """Get current user profile"""
     user = get_current_user()
     
+    # Get profile_id based on role
+    profile_id = None
+    if user.role == 'mother' and user.mother:
+        profile_id = user.mother.id
+    elif user.role == 'chw' and user.chw:
+        profile_id = user.chw.id
+    elif user.role == 'nurse' and user.nurse:
+        profile_id = user.nurse.id
+    
     profile_data = {
         'id': user.id,
         'phone_number': user.phone_number,
         'name': user.name,
         'role': user.role,
+        'profile_id': profile_id,
         'is_verified': user.is_verified,
         'created_at': user.created_at.isoformat(),
         'auth_method': getattr(request, 'auth_method', 'jwt')

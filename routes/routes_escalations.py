@@ -109,8 +109,8 @@ def create_escalation():
 
         payload = {"message": "Escalation created.", **_serialize(escalation)}
         # ── WebSocket push (all 4 rooms: profile + user for both CHW and nurse) ──
-        _emit_escalation_event("escalation:created", payload, escalation.chw_id, escalation.nurse_id, chw=chw, nurse=nurse)
-        # ──────────────────────────────────────────────────────────────────────
+        _emit_escalation_event("escalation:created", payload, escalation.chw_id, escalation.nurse_id, chw=chw, nurse=nurse)        # Notify the mother that her case has been escalated
+        socketio.emit("escalation:created", payload, to=f"user:{mother.user_id}")        # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
@@ -204,8 +204,10 @@ def update_escalation_status(escalation_id):
 
     payload = {"message": f"Escalation status updated to '{new_status}'.", **_serialize(e)}
     # ── WebSocket push (all 4 rooms) ──────────────────────────────────────
-    _emit_escalation_event("escalation:updated", payload, e.chw_id, e.nurse_id)
-    # ──────────────────────────────────────────────────────────────────────
+    _emit_escalation_event("escalation:updated", payload, e.chw_id, e.nurse_id)    # Notify the mother of status changes to her escalation
+    mother = Mother.query.get(e.mother_id)
+    if mother:
+        socketio.emit(\"escalation:status_changed\", payload, to=f\"user:{mother.user_id}\")    # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 
 # ── Update escalation fields ──────────────────────────────────────────────────

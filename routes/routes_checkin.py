@@ -76,12 +76,16 @@ def create_checkin(mother_id):
     # ── WebSocket push ──────────────────────────────────────────────────────
     # 1. Notify the mother's own personal room
     socketio.emit("checkin:new", payload, to=f"user:{mother.user_id}")
-    # 2. Notify the assigned CHW(s) via their profile room
+    # 2. Notify the assigned CHW(s) via their profile room and user room
     assignment = MotherCHWAssignment.query.filter_by(
         mother_id=mother_id, status='active'
     ).first()
     if assignment:
         socketio.emit("checkin:new", payload, to=f"chw:{assignment.chw_id}")
+        # Also emit to the CHW's user room for reliability (reconnect safety)
+        chw = CHW.query.get(assignment.chw_id)
+        if chw:
+            socketio.emit("checkin:new", payload, to=f"user:{chw.user_id}")
     # ───────────────────────────────────────────────────────────────────────
 
     return jsonify(payload), 201

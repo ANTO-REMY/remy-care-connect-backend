@@ -66,6 +66,20 @@ def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
     nurse_profile = Nurse.query.filter_by(user_id=health_worker_id).first()
     if nurse_profile:
         socketio.emit(event_name, payload, to=f"nurse:{nurse_profile.id}")
+        
+        # If a nurse creates/updates an appointment, notify the assigned CHW
+        mother_profile = Mother.query.filter_by(user_id=mother_id).first()
+        if mother_profile:
+            assignment = MotherCHWAssignment.query.filter_by(
+                mother_id=mother_profile.id, 
+                status='active'
+            ).first()
+            if assignment:
+                socketio.emit(event_name, payload, to=f"chw:{assignment.chw_id}")
+                # Also emit to the CHW's user room for reliability
+                assigned_chw = CHW.query.get(assignment.chw_id)
+                if assigned_chw:
+                    socketio.emit(event_name, payload, to=f"user:{assigned_chw.user_id}")
 
 
 def _can_manage_appointment(current_user, appointment):
