@@ -16,6 +16,7 @@ from models import db, CHW, Nurse, Mother, Escalation, EscalationHiddenForUser
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
+from notifications import send_push
 
 bp = Blueprint('escalations', __name__)
 HIDDEN_RETENTION_DAYS = 15
@@ -34,6 +35,15 @@ def _emit_escalation_event(event: str, payload: dict, chw_id: int, nurse_id: int
         socketio.emit(event, payload, to=f"user:{chw.user_id}")
     if nurse:
         socketio.emit(event, payload, to=f"user:{nurse.user_id}")
+        
+    current = get_current_user()
+    current_uid = current.id if current else None
+    
+    msg = payload.get("message", "You have an escalation update.")
+    if chw and chw.user_id != current_uid:
+        send_push(chw.user_id, "RemyCareConnect", msg, {"event": event})
+    if nurse and nurse.user_id != current_uid:
+        send_push(nurse.user_id, "RemyCareConnect", msg, {"event": event})
 
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
@@ -110,7 +120,9 @@ def create_escalation():
         payload = {"message": "Escalation created.", **_serialize(escalation)}
         # ── WebSocket push (all 4 rooms: profile + user for both CHW and nurse) ──
         _emit_escalation_event("escalation:created", payload, escalation.chw_id, escalation.nurse_id, chw=chw, nurse=nurse)        # Notify the mother that her case has been escalated
-        socketio.emit("escalation:created", payload, to=f"user:{mother.user_id}")        # ──────────────────────────────────────────────────────────────────────
+        socketio.emit("escalation:created", payload, to=f"user:{mother.user_id}")
+        send_push(mother.user_id, "RemyCareConnect", "Your CHW has escalated your case to a nurse.", {"event": "escalation:created"})
+        # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
     except Exception as e:
         db.session.rollback()
@@ -207,7 +219,9 @@ def update_escalation_status(escalation_id):
     _emit_escalation_event("escalation:updated", payload, e.chw_id, e.nurse_id)    # Notify the mother of status changes to her escalation
     mother = Mother.query.get(e.mother_id)
     if mother:
-        socketio.emit(\"escalation:status_changed\", payload, to=f\"user:{mother.user_id}\")    # ──────────────────────────────────────────────────────────────────────
+        socketio.emit("escalation:status_changed", payload, to=f"user:{mother.user_id}")
+        send_push(mother.user_id, "RemyCareConnect", f"Your escalated case status is now: {new_status}", {"event": "escalation:status_changed"})
+    # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 
 # ── Update escalation fields ──────────────────────────────────────────────────

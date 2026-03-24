@@ -22,6 +22,7 @@ from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
+from notifications import send_push
 
 bp = Blueprint('appointments', __name__)
 HIDDEN_RETENTION_DAYS = 15
@@ -55,9 +56,19 @@ def _get_user_or_error(user_id, label):
     return user, None, None
 
 def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
-    """Helper to emit WebSocket events to both user and profile rooms."""
+    """Helper to emit WebSocket events and Push Notifications to participants."""
     socketio.emit(event_name, payload, to=f"user:{mother_id}")
     socketio.emit(event_name, payload, to=f"user:{health_worker_id}")
+    
+    # Try sending Push Notifications (skip sending to the user who triggered the action)
+    current = get_current_user()
+    current_uid = current.id if current else None
+    
+    msg = payload.get("message", "You have an appointment update.")
+    if mother_id != current_uid:
+        send_push(mother_id, "RemyCareConnect", msg, data={"event": event_name})
+    if health_worker_id != current_uid:
+        send_push(health_worker_id, "RemyCareConnect", msg, data={"event": event_name})
 
     chw_profile = CHW.query.filter_by(user_id=health_worker_id).first()
     if chw_profile:
@@ -80,6 +91,8 @@ def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
                 assigned_chw = CHW.query.get(assignment.chw_id)
                 if assigned_chw:
                     socketio.emit(event_name, payload, to=f"user:{assigned_chw.user_id}")
+                    if assigned_chw.user_id != current_uid:
+                        send_push(assigned_chw.user_id, "RemyCareConnect", f"Nurse Update: {msg}", data={"event": event_name})
 
 
 def _can_manage_appointment(current_user, appointment):

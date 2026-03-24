@@ -308,3 +308,19 @@ class NextOfKin(db.Model):
     sex = db.Column(db.String(8), nullable=False)
     relationship = db.Column(db.String(64), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
+
+# DeviceToken model: stores Firebase Cloud Messaging tokens for push notifications
+class DeviceToken(db.Model):
+    __tablename__ = 'device_tokens'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    fcm_token = db.Column(db.String(255), nullable=False)
+    device_info = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'fcm_token', name='uq_user_fcm_token'),
+    )
+
+    user = db.relationship('User', backref=db.backref('device_tokens', lazy=True, cascade='all, delete-orphan'))

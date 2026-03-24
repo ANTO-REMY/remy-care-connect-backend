@@ -19,7 +19,7 @@ socketio = SocketIO(
         "http://localhost:3000",
     ],
     message_queue=redis_url,  # Redis message broker for multi-worker deployments
-    async_mode="gevent",  # Use gevent for production (more efficient than threading)
+    async_mode=os.environ.get("SOCKET_ASYNC_MODE"),  # None allows auto-detection (threading on Windows local dev)
     # Allow the JWT token to be passed as a query-string param on connect
     # e.g. ?token=<JWT>
     logger=False,
