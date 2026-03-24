@@ -78,4 +78,9 @@ def create_app():
     # Register Socket.IO event handlers (import for side-effects)
     import routes.socket_events  # noqa: F401
 
+    # Initialise Firebase Cloud Messaging (no-op if credentials not configured)
+    # Imported lazily to avoid circular imports during app startup.
+    from notifications import init_firebase
+    init_firebase()
+
     return app

@@ -12,3 +12,4 @@ redis==5.2.1
 requests==2.32.3
 gevent==23.9.1
 gevent-websocket==0.10.1
+firebase-admin==6.6.0

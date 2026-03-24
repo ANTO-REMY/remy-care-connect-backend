@@ -1,86 +1,71 @@
-"""
-notifications.py
+"""notifications.py
 ────────────────
 Firebase Cloud Messaging (FCM) push-notification helpers.
 
-This is a **placeholder** — actual FCM integration requires:
-  1. A Firebase service-account JSON key (GOOGLE_APPLICATION_CREDENTIALS)
-  2. `pip install firebase-admin`
-  3. Initialising `firebase_admin.initialize_app()` once at startup
-
-Once configured, call `send_push(user_id, title, body, data)` from any
-route handler to push a notification to all devices registered for that user.
+Initialises firebase_admin once at startup and exposes send_push() to
+deliver notifications to all device tokens registered for a user.
 """
 
 import logging
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# ── Placeholder flag ──────────────────────────────────────────────────────────
-# Set to True once firebase_admin is configured in app.py
+# ── Firebase admin globals ────────────────────────────────────────────────────
+firebase_admin = None  # type: ignore[assignment]
+messaging = None  # type: ignore[assignment]
 _firebase_initialised = False
 
 
-def init_firebase():
-    """
-    Call once at app startup after setting GOOGLE_APPLICATION_CREDENTIALS.
+def init_firebase() -> None:
+    """Call once at app startup after GOOGLE_APPLICATION_CREDENTIALS is set."""
+    global _firebase_initialised, firebase_admin, messaging
+    if _firebase_initialised:
+        return
 
-    Example (in app.py):
-        from notifications import init_firebase
-        init_firebase()
-    """
-    global _firebase_initialised
     try:
-        # import firebase_admin
-        # from firebase_admin import credentials
-        # cred = credentials.ApplicationDefault()
-        # firebase_admin.initialize_app(cred)
-        # _firebase_initialised = True
-        log.info("[FCM] Firebase not yet configured — push notifications disabled.")
-    except Exception as e:
-        log.warning(f"[FCM] Failed to initialise Firebase: {e}")
+        from firebase_admin import credentials, initialize_app, messaging as _messaging  # type: ignore[import]
+
+        cred = credentials.ApplicationDefault()
+        firebase_admin = initialize_app(cred)
+        messaging = _messaging
+        _firebase_initialised = True
+        log.info("[FCM] Firebase initialised for push notifications.")
+    except Exception as exc:  # pragma: no cover - defensive logging
+        log.warning(f"[FCM] Failed to initialise Firebase: {exc}")
 
 
-def send_push(user_id: int, title: str, body: str, data: dict | None = None) -> bool:
-    """
-    Send a push notification to all devices registered for `user_id`.
+def send_push(user_id: int, title: str, body: str, data: Optional[dict] = None) -> bool:
+    """Send a push notification to all devices registered for `user_id`."""
+    # Imported lazily to avoid circular imports (models.py imports db from app.py).
+    from app import db
 
-    Returns True if at least one message was sent successfully.
-    Returns False (and logs) when Firebase is not configured.
-
-    Parameters
-    ----------
-    user_id : int
-        The users.id to target.
-    title : str
-        Notification title visible in the system tray.
-    body : str
-        Notification body text.
-    data : dict, optional
-        Arbitrary key-value payload delivered silently to the app.
-    """
-    if not _firebase_initialised:
+    if not _firebase_initialised or messaging is None:
         log.debug(f"[FCM] Skipped push for user {user_id} — Firebase not initialised.")
         return False
 
-    # TODO: Query device_tokens table for user_id, build FCM messages, send.
-    # from firebase_admin import messaging
-    # from models import db
-    # tokens = db.session.execute(
-    #     "SELECT fcm_token FROM device_tokens WHERE user_id = :uid",
-    #     {"uid": user_id},
-    # ).scalars().all()
-    #
-    # if not tokens:
-    #     return False
-    #
-    # message = messaging.MulticastMessage(
-    #     notification=messaging.Notification(title=title, body=body),
-    #     data=data or {},
-    #     tokens=tokens,
-    # )
-    # response = messaging.send_each_for_multicast(message)
-    # log.info(f"[FCM] Sent {response.success_count}/{len(tokens)} to user {user_id}")
-    # return response.success_count > 0
+    # Fetch all FCM tokens for this user
+    result = db.session.execute(
+        db.text("SELECT fcm_token FROM device_tokens WHERE user_id = :uid"),
+        {"uid": user_id},
+    )
+    tokens = [row[0] for row in result.fetchall()]
 
-    return False
+    if not tokens:
+        log.debug(f"[FCM] No device tokens found for user {user_id}")
+        return False
+
+    try:
+        message = messaging.MulticastMessage(
+            notification=messaging.Notification(title=title, body=body),
+            data=data or {},
+            tokens=tokens,
+        )
+        response = messaging.send_each_for_multicast(message)
+        log.info(
+            f"[FCM] Sent {response.success_count}/{len(tokens)} notifications to user {user_id}",
+        )
+        return response.success_count > 0
+    except Exception as exc:  # pragma: no cover - defensive logging
+        log.warning(f"[FCM] Failed to send push to user {user_id}: {exc}")
+        return False
