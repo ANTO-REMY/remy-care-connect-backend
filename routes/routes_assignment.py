@@ -4,6 +4,7 @@ from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
 from socket_manager import socketio
+from notifications import create_user_notification
 
 bp = Blueprint('assignment', __name__)
 
@@ -24,17 +25,42 @@ def _serialize_assignment(a):
 def _emit_assignment_event(event: str, assignment, mother: Mother = None):
     """Emit an assignment event to all relevant rooms (CHW + mother, dual-room pattern)."""
     payload = _serialize_assignment(assignment)
+    title_by_event = {
+        "assignment:created": "New Mother Assignment",
+        "assignment:status_changed": "Assignment Status Changed",
+        "assignment:deleted": "Assignment Removed",
+    }
+    title = title_by_event.get(event, "Assignment Update")
+    message = f"{assignment.mother_name} assignment has been updated."
     # CHW profile room
     socketio.emit(event, payload, to=f"chw:{assignment.chw_id}")
     # CHW user room (dual-room: ensures delivery regardless of which room the client joined)
     chw = CHW.query.get(assignment.chw_id)
     if chw:
         socketio.emit(event, payload, to=f"user:{chw.user_id}")
+        create_user_notification(
+            user_id=chw.user_id,
+            event_type=event,
+            title=title,
+            message=message,
+            url="/dashboard/chw",
+            entity_type="assignment",
+            entity_id=assignment.id,
+        )
     # Mother's user room
     if mother is None:
         mother = Mother.query.get(assignment.mother_id)
     if mother:
         socketio.emit(event, payload, to=f"user:{mother.user_id}")
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type=event,
+            title=title,
+            message=f"Your CHW assignment has been updated.",
+            url="/dashboard/mother",
+            entity_type="assignment",
+            entity_id=assignment.id,
+        )
 
 # ── CHW endpoints ─────────────────────────────────────────────────────────────
 
@@ -162,8 +188,29 @@ def delete_assignment(assignment_id):
     db.session.commit()
     # ── WebSocket push ────────────────────────────────────────────────────
     socketio.emit("assignment:deleted", payload, to=f"chw:{chw_id}")
+    chw = CHW.query.get(chw_id)
+    if chw:
+        socketio.emit("assignment:deleted", payload, to=f"user:{chw.user_id}")
+        create_user_notification(
+            user_id=chw.user_id,
+            event_type="assignment:deleted",
+            title="Assignment Removed",
+            message="A mother assignment was removed from your dashboard.",
+            url="/dashboard/chw",
+            entity_type="assignment",
+            entity_id=assignment_id,
+        )
     if mother:
         socketio.emit("assignment:deleted", payload, to=f"user:{mother.user_id}")
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type="assignment:deleted",
+            title="CHW Assignment Removed",
+            message="Your CHW assignment has been removed.",
+            url="/dashboard/mother",
+            entity_type="assignment",
+            entity_id=assignment_id,
+        )
     # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Assignment deleted."}), 200
 

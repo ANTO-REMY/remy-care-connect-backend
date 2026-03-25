@@ -55,6 +55,7 @@ def create_app():
     from routes.routes_escalations import bp as escalations_bp
     from routes.routes_appointments import bp as appointments_bp
     from routes.routes_nextofkin import bp as nextofkin_bp
+    from routes.routes_notifications import bp as notifications_bp
     from routes.routes_photos import bp as photos_bp
     from routes.routes_locations import bp as locations_bp
     app.register_blueprint(health_bp, url_prefix='/api/v1')
@@ -68,6 +69,7 @@ def create_app():
     app.register_blueprint(escalations_bp, url_prefix='/api/v1')
     app.register_blueprint(appointments_bp, url_prefix='/api/v1')
     app.register_blueprint(nextofkin_bp, url_prefix='/api/v1')
+    app.register_blueprint(notifications_bp, url_prefix='/api/v1')
     app.register_blueprint(photos_bp, url_prefix='/api/v1')
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp

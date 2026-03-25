@@ -17,7 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
-from notifications import send_push
+from notifications import send_push, create_user_notification
+from push_payloads import build_push_data
 
 bp = Blueprint('escalations', __name__)
 HIDDEN_RETENTION_DAYS = 15
@@ -41,10 +42,51 @@ def _emit_escalation_event(event: str, payload: dict, chw_id: int, nurse_id: int
     current_uid = current.id if current else None
     
     msg = payload.get("message", "You have an escalation update.")
+    escalation_id = payload.get("id")
     if chw and chw.user_id != current_uid:
-        send_push(chw.user_id, "RemyCareConnect", msg, {"event": event})
+        create_user_notification(
+            user_id=chw.user_id,
+            event_type=event,
+            title="Escalation Update",
+            message=msg,
+            url="/dashboard/chw",
+            entity_type="escalation",
+            entity_id=escalation_id,
+        )
+        send_push(
+            chw.user_id,
+            "Escalation Update",
+            msg,
+            build_push_data(
+                event=event,
+                url="/dashboard/chw",
+                entity_type="escalation",
+                entity_id=escalation_id,
+                role="chw",
+            ),
+        )
     if nurse and nurse.user_id != current_uid:
-        send_push(nurse.user_id, "RemyCareConnect", msg, {"event": event})
+        create_user_notification(
+            user_id=nurse.user_id,
+            event_type=event,
+            title="New Escalation Alert",
+            message=msg,
+            url="/dashboard/nurse",
+            entity_type="escalation",
+            entity_id=escalation_id,
+        )
+        send_push(
+            nurse.user_id,
+            "New Escalation Alert",
+            msg,
+            build_push_data(
+                event=event,
+                url="/dashboard/nurse",
+                entity_type="escalation",
+                entity_id=escalation_id,
+                role="nurse",
+            ),
+        )
 
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
@@ -54,6 +96,7 @@ def _serialize(e):
         "chw_id": e.chw_id,
         "chw_name": e.chw_name,
         "nurse_id": e.nurse_id,
+        "nurse_user_id": e.nurse.user_id if e.nurse else None,
         "nurse_name": e.nurse_name,
         "mother_id": e.mother_id,
         "checkin_id": e.checkin_id,
@@ -143,7 +186,27 @@ def create_escalation():
         # ── WebSocket push (all 4 rooms: profile + user for both CHW and nurse) ──
         _emit_escalation_event("escalation:created", payload, escalation.chw_id, escalation.nurse_id, chw=chw, nurse=nurse)        # Notify the mother that her case has been escalated
         socketio.emit("escalation:created", payload, to=f"user:{mother.user_id}")
-        send_push(mother.user_id, "RemyCareConnect", "Your CHW has escalated your case to a nurse.", {"event": "escalation:created"})
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type="escalation:created",
+            title="Case Escalated",
+            message="Your CHW has escalated your case to a nurse.",
+            url="/dashboard/mother",
+            entity_type="escalation",
+            entity_id=escalation.id,
+        )
+        send_push(
+            mother.user_id,
+            "Case Escalated",
+            "Your CHW has escalated your case to a nurse.",
+            build_push_data(
+                event="escalation:created",
+                url="/dashboard/mother",
+                entity_type="escalation",
+                entity_id=escalation.id,
+                role="mother",
+            ),
+        )
         # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
     except IntegrityError:
@@ -245,7 +308,28 @@ def update_escalation_status(escalation_id):
     mother = Mother.query.get(e.mother_id)
     if mother:
         socketio.emit("escalation:status_changed", payload, to=f"user:{mother.user_id}")
-        send_push(mother.user_id, "RemyCareConnect", f"Your escalated case status is now: {new_status}", {"event": "escalation:status_changed"})
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type="escalation:status_changed",
+            title="Case Status Update",
+            message=f"Your escalated case status is now: {new_status}",
+            url="/dashboard/mother",
+            entity_type="escalation",
+            entity_id=e.id,
+        )
+        send_push(
+            mother.user_id,
+            "Case Status Update",
+            f"Your escalated case status is now: {new_status}",
+            build_push_data(
+                event="escalation:status_changed",
+                url="/dashboard/mother",
+                entity_type="escalation",
+                entity_id=e.id,
+                role="mother",
+                extra={"status": new_status},
+            ),
+        )
     # ──────────────────────────────────────────────────────────────────────
     return jsonify(payload), 200
 

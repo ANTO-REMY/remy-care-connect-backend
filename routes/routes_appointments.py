@@ -22,7 +22,8 @@ from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
-from notifications import send_push
+from notifications import send_push, create_user_notification
+from push_payloads import build_push_data
 
 bp = Blueprint('appointments', __name__)
 HIDDEN_RETENTION_DAYS = 15
@@ -30,11 +31,17 @@ HIDDEN_RETENTION_DAYS = 15
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
 def _serialize(a):
+    creator_name = a.creator_user.name if a.creator_user else None
+    creator_role = a.creator_user.role if a.creator_user else None
     return {
         "id": a.id,
         "mother_id": a.mother_id,
         "health_worker_id": a.health_worker_id,
         "created_by_user_id": a.created_by_user_id,
+        "mother_name": a.mother_user.name if a.mother_user else None,
+        "hw_name": a.hw_user.name if a.hw_user else None,
+        "creator_name": creator_name,
+        "creator_role": creator_role,
         "scheduled_time": a.scheduled_time.isoformat() if a.scheduled_time else None,
         "appointment_type": a.appointment_type,
         "recurrence_rule": a.recurrence_rule,
@@ -63,12 +70,56 @@ def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
     # Try sending Push Notifications (skip sending to the user who triggered the action)
     current = get_current_user()
     current_uid = current.id if current else None
+    appointment_id = payload.get("id")
+    hw_user = User.query.get(health_worker_id)
+    hw_role = hw_user.role if hw_user else None
+    hw_url = "/dashboard/nurse" if hw_role == 'nurse' else "/dashboard/chw"
     
     msg = payload.get("message", "You have an appointment update.")
     if mother_id != current_uid:
-        send_push(mother_id, "RemyCareConnect", msg, data={"event": event_name})
+        create_user_notification(
+            user_id=mother_id,
+            event_type=event_name,
+            title="Appointment Update",
+            message=msg,
+            url="/dashboard/mother",
+            entity_type="appointment",
+            entity_id=appointment_id,
+        )
+        send_push(
+            mother_id,
+            "Appointment Update",
+            msg,
+            data=build_push_data(
+                event=event_name,
+                url="/dashboard/mother",
+                entity_type="appointment",
+                entity_id=appointment_id,
+                role="mother",
+            ),
+        )
     if health_worker_id != current_uid:
-        send_push(health_worker_id, "RemyCareConnect", msg, data={"event": event_name})
+        create_user_notification(
+            user_id=health_worker_id,
+            event_type=event_name,
+            title="Appointment Update",
+            message=msg,
+            url=hw_url,
+            entity_type="appointment",
+            entity_id=appointment_id,
+        )
+        send_push(
+            health_worker_id,
+            "Appointment Update",
+            msg,
+            data=build_push_data(
+                event=event_name,
+                url=hw_url,
+                entity_type="appointment",
+                entity_id=appointment_id,
+                role=hw_role or "chw",
+            ),
+        )
 
     chw_profile = CHW.query.filter_by(user_id=health_worker_id).first()
     if chw_profile:
@@ -92,7 +143,27 @@ def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
                 if assigned_chw:
                     socketio.emit(event_name, payload, to=f"user:{assigned_chw.user_id}")
                     if assigned_chw.user_id != current_uid:
-                        send_push(assigned_chw.user_id, "RemyCareConnect", f"Nurse Update: {msg}", data={"event": event_name})
+                        create_user_notification(
+                            user_id=assigned_chw.user_id,
+                            event_type=event_name,
+                            title="Nurse Appointment Update",
+                            message=f"Nurse Update: {msg}",
+                            url="/dashboard/chw",
+                            entity_type="appointment",
+                            entity_id=appointment_id,
+                        )
+                        send_push(
+                            assigned_chw.user_id,
+                            "Nurse Appointment Update",
+                            f"Nurse Update: {msg}",
+                            data=build_push_data(
+                                event=event_name,
+                                url="/dashboard/chw",
+                                entity_type="appointment",
+                                entity_id=appointment_id,
+                                role="chw",
+                            ),
+                        )
 
 
 def _can_manage_appointment(current_user, appointment):

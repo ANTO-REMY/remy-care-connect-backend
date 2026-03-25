@@ -326,3 +326,40 @@ class DeviceToken(db.Model):
     )
 
     user = db.relationship('User', backref=db.backref('device_tokens', lazy=True, cascade='all, delete-orphan'))
+
+
+# PushNotificationLog model: delivery telemetry for FCM sends
+class PushNotificationLog(db.Model):
+    __tablename__ = 'push_notification_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    event = db.Column(db.String(128), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    token_count = db.Column(db.Integer, nullable=False, default=0)
+    success_count = db.Column(db.Integer, nullable=False, default=0)
+    failure_count = db.Column(db.Integer, nullable=False, default=0)
+    stale_token_count = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(32), nullable=False)
+    error = db.Column(db.Text)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    user = db.relationship('User', backref=db.backref('push_notification_logs', lazy=True, cascade='all, delete-orphan'))
+
+
+# UserNotification model: persistent in-app notification inbox per user
+class UserNotification(db.Model):
+    __tablename__ = 'user_notifications'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    event_type = db.Column(db.String(128), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    url = db.Column(db.String(255))
+    entity_type = db.Column(db.String(64))
+    entity_id = db.Column(db.Integer)
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    read_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy=True, cascade='all, delete-orphan'))

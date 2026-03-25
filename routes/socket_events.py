@@ -131,11 +131,17 @@ def on_disconnect():
 # ── request_sync ──────────────────────────────────────────────────────────────
 
 def _appt_serialize(a):
+    creator_name = a.creator_user.name if a.creator_user else None
+    creator_role = a.creator_user.role if a.creator_user else None
     return {
         "id": a.id,
         "mother_id": a.mother_id,
         "health_worker_id": a.health_worker_id,
         "created_by_user_id": a.created_by_user_id,
+        "mother_name": a.mother_user.name if a.mother_user else None,
+        "hw_name": a.hw_user.name if a.hw_user else None,
+        "creator_name": creator_name,
+        "creator_role": creator_role,
         "scheduled_time": a.scheduled_time.isoformat() if a.scheduled_time else None,
         "appointment_type": a.appointment_type,
         "status": a.status,

@@ -16,6 +16,7 @@ from auth_utils import require_auth, get_current_user
 from sqlalchemy import desc
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
+from notifications import create_user_notification
 
 bp = Blueprint('checkin', __name__)
 
@@ -86,6 +87,15 @@ def create_checkin(mother_id):
         chw = CHW.query.get(assignment.chw_id)
         if chw:
             socketio.emit("checkin:new", payload, to=f"user:{chw.user_id}")
+            create_user_notification(
+                user_id=chw.user_id,
+                event_type="checkin:new",
+                title="New Daily Check-in",
+                message=f"Check-in received from {mother.mother_name}.",
+                url="/dashboard/chw",
+                entity_type="checkin",
+                entity_id=checkin.id,
+            )
     # ───────────────────────────────────────────────────────────────────────
 
     return jsonify(payload), 201
