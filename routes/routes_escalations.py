@@ -12,7 +12,8 @@ Escalation flow:
 """
 
 from flask import Blueprint, jsonify, request
-from models import db, CHW, Nurse, Mother, Escalation, EscalationHiddenForUser
+from models import db, CHW, Nurse, Mother, DailyCheckin, Escalation, EscalationHiddenForUser
+from sqlalchemy.exc import IntegrityError
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
 from socket_manager import socketio
@@ -55,6 +56,7 @@ def _serialize(e):
         "nurse_id": e.nurse_id,
         "nurse_name": e.nurse_name,
         "mother_id": e.mother_id,
+        "checkin_id": e.checkin_id,
         "mother_name": e.mother_name,
         "case_description": e.case_description,
         "issue_type": e.issue_type,
@@ -72,8 +74,9 @@ def _serialize(e):
 def create_escalation():
     """
     CHW submits an escalation.
-    Body:
-      chw_id, nurse_id, mother_id, case_description,
+        Body:
+            chw_id, nurse_id, mother_id, case_description,
+            checkin_id (optional),
       issue_type (optional), notes (optional), priority (default 'medium')
     """
     data = request.get_json() or {}
@@ -95,6 +98,24 @@ def create_escalation():
     if not mother:
         return jsonify({"error": f"Mother {data['mother_id']} not found."}), 404
 
+    checkin = None
+    checkin_id = data.get('checkin_id')
+    if checkin_id is not None:
+        checkin = DailyCheckin.query.get(checkin_id)
+        if not checkin:
+            return jsonify({"error": f"Check-in {checkin_id} not found."}), 404
+        if checkin.mother_id != mother.id:
+            return jsonify({"error": "checkin_id does not belong to the selected mother."}), 400
+        existing_active = Escalation.query.filter(
+            Escalation.checkin_id == checkin.id,
+            Escalation.status.in_(['pending', 'in_progress'])
+        ).first()
+        if existing_active:
+            return jsonify({
+                "error": "This check-in has already been escalated.",
+                "escalation_id": existing_active.id,
+            }), 409
+
     priority = data.get('priority', 'medium')
     if priority not in ('low', 'medium', 'high', 'critical'):
         return jsonify({"error": "priority must be low | medium | high | critical"}), 400
@@ -106,6 +127,7 @@ def create_escalation():
             nurse_id=nurse.id,
             nurse_name=nurse.nurse_name,
             mother_id=mother.id,
+            checkin_id=checkin.id if checkin else None,
             mother_name=mother.mother_name,
             case_description=data['case_description'],
             issue_type=data.get('issue_type'),
@@ -124,6 +146,9 @@ def create_escalation():
         send_push(mother.user_id, "RemyCareConnect", "Your CHW has escalated your case to a nurse.", {"event": "escalation:created"})
         # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "This check-in has already been escalated."}), 409
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500

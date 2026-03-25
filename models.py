@@ -185,6 +185,7 @@ class Escalation(db.Model):
     nurse_id         = db.Column(db.Integer, db.ForeignKey('nurses.id', ondelete='CASCADE'), nullable=False)
     nurse_name       = db.Column(db.String(128), nullable=False)
     mother_id        = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'))
+    checkin_id       = db.Column(db.Integer, db.ForeignKey('daily_checkin.id', ondelete='SET NULL'))
     mother_name      = db.Column(db.String(128), nullable=False)
     case_description = db.Column(db.Text, nullable=False)
     issue_type       = db.Column(db.String(64))
@@ -211,6 +212,7 @@ class Escalation(db.Model):
     chw    = db.relationship('CHW',    backref=db.backref('escalations', lazy=True))
     nurse  = db.relationship('Nurse',  backref=db.backref('escalations_received', lazy=True))
     mother = db.relationship('Mother', backref=db.backref('escalations', lazy=True))
+    checkin = db.relationship('DailyCheckin', backref=db.backref('escalations', lazy=True))
 
 
 class EscalationHiddenForUser(db.Model):
