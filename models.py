@@ -363,3 +363,27 @@ class UserNotification(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
 
     user = db.relationship('User', backref=db.backref('notifications', lazy=True, cascade='all, delete-orphan'))
+
+
+# Resource model: educational materials and articles for role-specific content
+class Resource(db.Model):
+    __tablename__ = 'resources'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    category = db.Column(db.String(100))
+    target_role = db.Column(db.String(50), nullable=False)
+    content_type = db.Column(db.String(50))
+    url = db.Column(db.String(255))
+    thumbnail = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "target_role IN ('mother', 'chw', 'nurse')",
+            name='chk_resource_target_role'
+        ),
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
