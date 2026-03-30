@@ -9,6 +9,7 @@ from .routes_nurses import bp as nurses_bp
 from .routes_materials import bp as materials_bp
 from .routes_assignment import bp as assignment_bp
 from .routes_nextofkin import bp as nextofkin_bp
+from .routes_nutrition import bp as nutrition_bp
 
 __all__ = [
     'health_bp',
@@ -18,5 +19,6 @@ __all__ = [
     'nurses_bp',
     'materials_bp',
     'assignment_bp',
-    'nextofkin_bp'
+    'nextofkin_bp',
+    'nutrition_bp'
 ]

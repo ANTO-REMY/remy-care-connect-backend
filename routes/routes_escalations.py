@@ -110,6 +110,47 @@ def _serialize(e):
         "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
     }
 
+
+def _get_role_profile(current_user):
+    if current_user.role == 'chw':
+        return CHW.query.filter_by(user_id=current_user.id).first()
+    if current_user.role == 'nurse':
+        return Nurse.query.filter_by(user_id=current_user.id).first()
+    if current_user.role == 'mother':
+        return Mother.query.filter_by(user_id=current_user.id).first()
+    return None
+
+
+def _apply_escalation_scope(query, current_user):
+    profile = _get_role_profile(current_user)
+    if not profile:
+        return query.filter(Escalation.id == -1)
+
+    if current_user.role == 'chw':
+        return query.filter(Escalation.chw_id == profile.id)
+    if current_user.role == 'nurse':
+        return query.filter(Escalation.nurse_id == profile.id)
+    if current_user.role == 'mother':
+        return query.filter(Escalation.mother_id == profile.id)
+    return query.filter(Escalation.id == -1)
+
+
+def _can_view_escalation(current_user, escalation):
+    if not current_user or not escalation:
+        return False
+
+    profile = _get_role_profile(current_user)
+    if not profile:
+        return False
+
+    if current_user.role == 'chw':
+        return escalation.chw_id == profile.id
+    if current_user.role == 'nurse':
+        return escalation.nurse_id == profile.id
+    if current_user.role == 'mother':
+        return escalation.mother_id == profile.id
+    return False
+
 # ── Create escalation ─────────────────────────────────────────────────────────
 
 @bp.route('/escalations', methods=['POST'])
@@ -235,7 +276,7 @@ def list_escalations():
     deleted_only = str(request.args.get('deleted_only', 'false')).lower() in ('1', 'true', 'yes')
     cutoff = datetime.now(timezone.utc) - timedelta(days=HIDDEN_RETENTION_DAYS)
 
-    q = Escalation.query
+    q = _apply_escalation_scope(Escalation.query, current_user)
     if deleted_only:
         hidden_subq = db.session.query(EscalationHiddenForUser.escalation_id).filter(
             EscalationHiddenForUser.user_id == current_user.id,
@@ -266,10 +307,17 @@ def list_escalations():
 # ── Get single escalation ─────────────────────────────────────────────────────
 
 @bp.route('/escalations/<int:escalation_id>', methods=['GET'])
+@require_auth
 def get_escalation(escalation_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     e = Escalation.query.get(escalation_id)
     if not e:
         return jsonify({"error": "Escalation not found."}), 404
+    if not _can_view_escalation(current_user, e):
+        return jsonify({"error": "Forbidden."}), 403
     return jsonify(_serialize(e)), 200
 
 # ── Update status (nurse action) ──────────────────────────────────────────────
@@ -286,6 +334,9 @@ def update_escalation_status(escalation_id):
     e = Escalation.query.get(escalation_id)
     if not e:
         return jsonify({"error": "Escalation not found."}), 404
+    nurse_profile = Nurse.query.filter_by(user_id=get_current_user().id).first()
+    if not nurse_profile or e.nurse_id != nurse_profile.id:
+        return jsonify({"error": "Forbidden."}), 403
 
     data = request.get_json() or {}
     new_status = data.get('status')
@@ -341,9 +392,15 @@ def update_escalation(escalation_id):
     """
     Update mutable fields: notes, priority, issue_type, case_description.
     """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     e = Escalation.query.get(escalation_id)
     if not e:
         return jsonify({"error": "Escalation not found."}), 404
+    if not _can_view_escalation(current_user, e):
+        return jsonify({"error": "Forbidden."}), 403
 
     data = request.get_json() or {}
     allowed = ('notes', 'priority', 'issue_type', 'case_description')
@@ -436,6 +493,8 @@ def restore_escalation(escalation_id):
 
     db.session.delete(hidden)
     db.session.commit()
+    payload = {"id": escalation_id, "user_id": current_user.id}
+    socketio.emit("escalation:restored", payload, to=f"user:{current_user.id}")
     return jsonify({"message": "Escalation restored to your dashboard.", "escalation_id": escalation_id}), 200
 
 

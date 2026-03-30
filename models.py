@@ -1,4 +1,5 @@
 from app import db
+from sqlalchemy.dialects.postgresql import JSONB
 
 # ── Administrative location models (Nairobi County) ──────────────────────────
 
@@ -291,9 +292,27 @@ class EducationalMaterial(db.Model):
 class DietaryRecommendation(db.Model):
     __tablename__ = 'dietary_recommendation'
     id = db.Column(db.Integer, primary_key=True)
+    source_id = db.Column(db.String(64), unique=True)
     title = db.Column(db.String, nullable=False)
+    swahili_name = db.Column(db.String)
     content = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text)
     target_group = db.Column(db.String)
+    target_groups = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    trimester_tags = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    meal_type = db.Column(db.String(64))
+    meal_time = db.Column(db.String(32))
+    key_nutrients = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    health_benefits = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    preparation_tips = db.Column(db.Text)
+    cautions = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    nutrition_highlight = db.Column(db.String(255))
+    portion_guide = db.Column(db.Text)
+    image_suggestion = db.Column(db.String(255))
+    tags = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))
+    calories = db.Column(db.Integer)
+    is_featured = db.Column(db.Boolean, nullable=False, default=False)
+    source_name = db.Column(db.String)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False)

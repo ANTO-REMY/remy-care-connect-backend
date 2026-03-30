@@ -59,6 +59,7 @@ def create_app():
     from routes.routes_photos import bp as photos_bp
     from routes.routes_locations import bp as locations_bp
     from routes.routes_resources import bp as resources_bp
+    from routes.routes_nutrition import bp as nutrition_bp
     app.register_blueprint(health_bp, url_prefix='/api/v1')
     app.register_blueprint(auth_bp, url_prefix='/api/v1')
     app.register_blueprint(mothers_bp, url_prefix='/api/v1')
@@ -74,6 +75,7 @@ def create_app():
     app.register_blueprint(photos_bp, url_prefix='/api/v1')
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
     app.register_blueprint(resources_bp, url_prefix='/api/v1')
+    app.register_blueprint(nutrition_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
     from routes.routes_device_tokens import bp as device_tokens_bp

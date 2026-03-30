@@ -17,6 +17,7 @@ Endpoints:
 """
 
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_
 from models import db, AppointmentSchedule, AppointmentHiddenForUser, User, Mother, CHW, Nurse
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
@@ -176,6 +177,25 @@ def _can_manage_appointment(current_user, appointment):
         appointment.created_by_user_id,
     }
 
+
+def _apply_appointment_scope(query, current_user):
+    """Restrict reads to appointments the current user is involved in."""
+    if current_user.role == 'mother':
+        return query.filter(
+            or_(
+                AppointmentSchedule.mother_id == current_user.id,
+                AppointmentSchedule.created_by_user_id == current_user.id,
+            )
+        )
+    if current_user.role in ('chw', 'nurse'):
+        return query.filter(
+            or_(
+                AppointmentSchedule.health_worker_id == current_user.id,
+                AppointmentSchedule.created_by_user_id == current_user.id,
+            )
+        )
+    return query.filter(AppointmentSchedule.id == -1)
+
 # ── Create appointment ────────────────────────────────────────────────────────
 
 @bp.route('/appointments', methods=['POST'])
@@ -284,7 +304,7 @@ def list_appointments():
     if not current_user:
         return jsonify({"error": "Unauthorized."}), 401
 
-    q = AppointmentSchedule.query
+    q = _apply_appointment_scope(AppointmentSchedule.query, current_user)
     include_hidden = str(request.args.get('include_hidden', 'false')).lower() in ('1', 'true', 'yes')
     hidden_only = str(request.args.get('hidden_only', 'false')).lower() in ('1', 'true', 'yes')
     include_deleted = str(request.args.get('include_deleted', 'false')).lower() in ('1', 'true', 'yes')
@@ -330,10 +350,17 @@ def list_appointments():
 # ── Get single appointment ────────────────────────────────────────────────────
 
 @bp.route('/appointments/<int:appt_id>', methods=['GET'])
+@require_auth
 def get_appointment(appt_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
         return jsonify({"error": "Appointment not found."}), 404
+    if not _can_manage_appointment(current_user, a):
+        return jsonify({"error": "Forbidden."}), 403
     return jsonify(_serialize(a)), 200
 
 # ── Update appointment ────────────────────────────────────────────────────────
@@ -342,9 +369,15 @@ def get_appointment(appt_id):
 @require_auth
 def update_appointment(appt_id):
     """Update mutable fields: scheduled_time, notes, recurrence_rule, recurrence_end"""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
         return jsonify({"error": "Appointment not found."}), 404
+    if not _can_manage_appointment(current_user, a):
+        return jsonify({"error": "Forbidden."}), 403
 
     data = request.get_json() or {}
 
@@ -381,9 +414,15 @@ def update_appointment_status(appt_id):
     """
     Body: { "status": "scheduled" | "completed" | "canceled" }
     """
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Unauthorized."}), 401
+
     a = AppointmentSchedule.query.get(appt_id)
     if not a:
         return jsonify({"error": "Appointment not found."}), 404
+    if not _can_manage_appointment(current_user, a):
+        return jsonify({"error": "Forbidden."}), 403
 
     data = request.get_json() or {}
     new_status = data.get('status')
@@ -469,6 +508,8 @@ def unhide_appointment(appt_id):
 
     db.session.delete(hidden)
     db.session.commit()
+    payload = {"id": appt_id, "user_id": current_user.id}
+    socketio.emit("appointment:restored", payload, to=f"user:{current_user.id}")
     return jsonify({"message": "Appointment restored to your dashboard.", "appointment_id": appt_id}), 200
 
 # ── Delete appointment ────────────────────────────────────────────────────────
