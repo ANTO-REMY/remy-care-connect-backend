@@ -27,6 +27,7 @@ All event names the server can push to clients
   assignment:created       payload: serialised Assignment dict
   assignment:status_changed payload: serialised Assignment dict
   assignment:deleted       payload: { id, chw_id, mother_id }
+  ultrasound:created       payload: serialised UltrasoundRecord dict
   mother:profile_updated   payload: mother profile dict
   chw:profile_updated      payload: CHW profile dict
   nurse:profile_updated    payload: nurse profile dict

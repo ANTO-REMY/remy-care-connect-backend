@@ -10,6 +10,7 @@ Weight log CRUD for mothers.
 
 from flask import Blueprint, request, jsonify
 from models import db, WeightLog, Mother
+from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, get_current_user
 from datetime import datetime, timedelta, timezone
 
@@ -83,9 +84,13 @@ def get_my_weight():
 @require_auth
 def get_mother_weight(mother_id):
     """CHW/Nurse views a specific mother's weight log."""
+    user = get_current_user()
     mother = Mother.query.get(mother_id)
     if not mother:
         return jsonify({'error': 'Mother not found.'}), 404
+
+    if not _can_access_mother(user, mother):
+        return jsonify({'error': "Forbidden. You are not authorized to access this mother's weight records."}), 403
 
     logs = (WeightLog.query
             .filter_by(mother_id=mother_id)
@@ -93,6 +98,30 @@ def get_mother_weight(mother_id):
             .all())
 
     return jsonify([_serialize(w) for w in logs]), 200
+
+
+def _can_access_mother(user, mother: Mother) -> bool:
+    """Role + assignment/ward authorization for mother-specific records."""
+    if not user:
+        return False
+
+    if user.role == 'chw':
+        if not user.chw:
+            return False
+        assignment = MotherCHWAssignment.query.filter_by(
+            chw_id=user.chw.id,
+            mother_id=mother.id,
+            status='active'
+        ).first()
+        return assignment is not None
+
+    if user.role == 'nurse':
+        if not user.nurse:
+            return False
+        # Nurses are limited to mothers in their ward.
+        return user.nurse.ward_id == mother.ward_id
+
+    return False
 
 
 def _serialize(w):

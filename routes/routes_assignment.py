@@ -1,10 +1,11 @@
 from flask import Blueprint, jsonify, request
-from models import db, CHW, Mother, Nurse, User
+from models import db, CHW, Mother, Nurse, User, DailyCheckin, UltrasoundRecord
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 from socket_manager import socketio
 from notifications import create_user_notification
+from sqlalchemy import desc
 
 bp = Blueprint('assignment', __name__)
 
@@ -78,6 +79,20 @@ def get_assigned_mothers(chw_id):
         if not mother:
             continue
         user = User.query.get(mother.user_id)
+        latest_checkin = _get_latest_checkin_for_mother(mother)
+        latest_ultrasound = _get_latest_ultrasound_for_mother(mother)
+        weeks_pregnant = _compute_weeks_pregnant(mother.due_date)
+        if weeks_pregnant == 0 and latest_ultrasound and latest_ultrasound.week_number:
+            # Fallback for legacy records where due_date may be missing/invalid.
+            weeks_pregnant = latest_ultrasound.week_number
+        latest_status = latest_checkin.response if latest_checkin else None
+        if latest_status == 'not_ok':
+            risk_level = 'high'
+        elif latest_status == 'ok':
+            risk_level = 'low'
+        else:
+            risk_level = 'medium'
+
         result.append({
             "assignment_id": a.id,
             "mother_id": mother.id,
@@ -86,9 +101,81 @@ def get_assigned_mothers(chw_id):
             "phone_number": user.phone_number if user else None,
             "location": mother.location,
             "status": a.status,
+            "checkin_status": latest_status,
+            "last_check_in_at": latest_checkin.created_at.isoformat() if latest_checkin and latest_checkin.created_at else None,
+            "due_date": mother.due_date.isoformat() if mother.due_date else None,
+            "weeks_pregnant": weeks_pregnant,
+            "risk_level": risk_level,
+            "last_ultrasound_at": latest_ultrasound.created_at.isoformat() if latest_ultrasound and latest_ultrasound.created_at else None,
             "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
         })
     return jsonify({"mothers": result, "total": len(result)}), 200
+
+
+def _compute_weeks_pregnant(due_date):
+    parsed_due_date = _normalize_due_date(due_date)
+    if not parsed_due_date:
+        return 0
+    today = datetime.now(timezone.utc).date()
+    conception = parsed_due_date - timedelta(days=280)
+    days_pregnant = max(0, (today - conception).days)
+    weeks = max(1, min(42, days_pregnant // 7))
+    return weeks
+
+
+def _normalize_due_date(due_date):
+    if not due_date:
+        return None
+    if isinstance(due_date, date):
+        return due_date
+    if isinstance(due_date, datetime):
+        return due_date.date()
+    if isinstance(due_date, str):
+        try:
+            return datetime.fromisoformat(due_date.replace('Z', '+00:00')).date()
+        except ValueError:
+            return None
+    return None
+
+
+def _get_latest_checkin_for_mother(mother: Mother):
+    """
+    Return latest check-in for a mother.
+    Supports legacy data where checkins may have been stored with user_id.
+    """
+    return (DailyCheckin.query
+            .filter(DailyCheckin.mother_id.in_([mother.id, mother.user_id]))
+            .order_by(desc(DailyCheckin.created_at))
+            .first())
+
+
+def _get_latest_ultrasound_for_mother(mother: Mother):
+    """
+    Return latest ultrasound for a mother.
+    Supports legacy data where scans may have been stored with user_id.
+    """
+    return (UltrasoundRecord.query
+            .filter(UltrasoundRecord.mother_id.in_([mother.id, mother.user_id]))
+            .order_by(desc(UltrasoundRecord.created_at))
+            .first())
+
+
+@bp.route('/chws/<int:chw_id>/mothers/latest-ultrasounds', methods=['GET'])
+def get_latest_ultrasounds_for_chw_mothers(chw_id):
+    """Return latest ultrasound summary per active mother assignment for CHW list views."""
+    assignments = MotherCHWAssignment.query.filter_by(chw_id=chw_id, status='active').all()
+    summaries = []
+    for a in assignments:
+        mother = Mother.query.get(a.mother_id)
+        if not mother:
+            continue
+        latest_ultrasound = _get_latest_ultrasound_for_mother(mother)
+        summaries.append({
+            "mother_id": mother.id,
+            "last_ultrasound_at": latest_ultrasound.created_at.isoformat() if latest_ultrasound and latest_ultrasound.created_at else None,
+            "last_ultrasound_week": latest_ultrasound.week_number if latest_ultrasound else None,
+        })
+    return jsonify({"summaries": summaries, "total": len(summaries)}), 200
 
 
 @bp.route('/chws/<int:chw_id>/assign_mother', methods=['POST'])
