@@ -11,7 +11,7 @@ Weight log CRUD for mothers.
 from flask import Blueprint, request, jsonify
 from models import db, WeightLog, Mother
 from auth_utils import require_auth, get_current_user
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 bp = Blueprint('weight', __name__)
 
@@ -41,7 +41,7 @@ def log_my_weight():
     week_number = data.get('week_number')
     if week_number is None and mother.due_date:
         today = datetime.now(timezone.utc).date()
-        conception = mother.due_date - __import__('datetime').timedelta(days=280)
+        conception = mother.due_date - timedelta(days=280)
         days_pregnant = (today - conception).days
         week_number = max(1, min(42, days_pregnant // 7))
 

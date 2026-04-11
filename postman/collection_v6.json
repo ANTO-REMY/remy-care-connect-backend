@@ -1,1976 +1,3180 @@
 {
-    "info": {
-        "_postman_id": "remy-care-connect-v6",
-        "name": "RemyCareConnect API v6 - Escalations / Assignments / Appointments / Device Tokens",
-        "description": "Updated March 2026. Added: Device Tokens folder (POST/DELETE /device-tokens for FCM push notification registration). WebSocket dual-room emission fixed for escalations and assignments (now emits to both profile rooms and user rooms). GET /mothers/{user_id}/assigned_chw added. Appointments auto-resolve health_worker_id when created by mother. Appointment dashboard delete/restore endpoints added: POST/DELETE /appointments/{id}/delete.",
-        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-        "version": {
-            "major": 6,
-            "minor": 2,
-            "patch": 0
-        }
-    },
-    "auth": {
-        "type": "bearer",
-        "bearer": [
-            {
-                "key": "token",
-                "value": "{{access_token}}",
-                "type": "string"
-            }
-        ]
-    },
-    "event": [
-        {
-            "listen": "prerequest",
-            "script": {
-                "type": "text/javascript",
-                "exec": [
-                    "// Auto-refresh token if expiring in next 5 minutes",
-                    "const accessToken = pm.environment.get('access_token');",
-                    "const refreshToken = pm.environment.get('refresh_token');",
-                    "const tokenExpiry = pm.environment.get('token_expiry');",
-                    "if (accessToken && refreshToken && tokenExpiry) {",
-                    "    const now = new Date().getTime();",
-                    "    const expiry = new Date(tokenExpiry).getTime();",
-                    "    if (now >= (expiry - 300000)) {",
-                    "        pm.sendRequest({",
-                    "            url: pm.environment.get('base_url') + '/api/v1/auth/refresh',",
-                    "            method: 'POST',",
-                    "            header: { 'Authorization': 'Bearer ' + refreshToken, 'Content-Type': 'application/json' }",
-                    "        }, function (err, response) {",
-                    "            if (!err && response.code === 200) {",
-                    "                pm.environment.set('access_token', response.json().access_token);",
-                    "                pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
-                    "                console.log('Token refreshed automatically');",
-                    "            }",
-                    "        });",
-                    "    }",
-                    "}"
-                ]
-            }
-        }
-    ],
-    "variable": [
-        {
-            "key": "base_url",
-            "value": "http://localhost:5001",
-            "type": "string"
-        },
-        {
-            "key": "access_token",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "refresh_token",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "token_expiry",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "user_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "user_role",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "mother_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "chw_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "nurse_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "otp_code",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "nok_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "assignment_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "escalation_id",
-            "value": "",
-            "type": "string"
-        },
-        {
-            "key": "appointment_id",
-            "value": "",
-            "type": "string"
-        }
-    ],
-    "item": [
-        {
-            "name": "Health Check",
-            "description": "System health and status endpoints",
-            "item": [
-                {
-                    "name": "Health Check",
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/health",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "health"
-                            ]
-                        },
-                        "description": "Check if the API server is running and healthy"
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Authentication",
-            "description": "Hybrid authentication system with JWT and sessions",
-            "item": [
-                {
-                    "name": "Register Mother",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('user_id', d.user_id);",
-                                    "    pm.environment.set('otp_code', d.otp_code);",
-                                    "    console.log('Registered. OTP: ' + d.otp_code);",
-                                    "    console.log('Name: ' + d.first_name + ' ' + d.last_name);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Wanjiku\",\n  \"email\": \"jane.wanjiku@example.com\",\n  \"pin\": \"1234\",\n  \"role\": \"mother\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/register",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "register"
-                            ]
-                        },
-                        "description": "Register a new mother. first_name, last_name, and email are the new fields. email is optional."
-                    }
-                },
-                {
-                    "name": "Register CHW",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('user_id', d.user_id);",
-                                    "    pm.environment.set('otp_code', d.otp_code);",
-                                    "    console.log('CHW Registered. OTP: ' + d.otp_code);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000002\",\n  \"first_name\": \"James\",\n  \"last_name\": \"Kamau\",\n  \"email\": \"james.kamau@example.com\",\n  \"pin\": \"1234\",\n  \"role\": \"chw\",\n  \"license_number\": \"CHW2026001\",\n  \"location\": \"Nairobi Central Health Center\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/register",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "register"
-                            ]
-                        },
-                        "description": "Register a new CHW. license_number and location are required for CHW/Nurse roles."
-                    }
-                },
-                {
-                    "name": "Register Nurse",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('user_id', d.user_id);",
-                                    "    pm.environment.set('otp_code', d.otp_code);",
-                                    "    console.log('Nurse Registered. OTP: ' + d.otp_code);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000003\",\n  \"first_name\": \"Mary\",\n  \"last_name\": \"Akinyi\",\n  \"email\": \"mary.akinyi@hospital.ke\",\n  \"pin\": \"1234\",\n  \"role\": \"nurse\",\n  \"license_number\": \"RN2026001\",\n  \"location\": \"Kenyatta National Hospital\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/register",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "register"
-                            ]
-                        },
-                        "description": "Register a new Nurse."
-                    }
-                },
-                {
-                    "name": "Verify OTP",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    console.log('OTP verified. You can now login.');",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"otp_code\": \"{{otp_code}}\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/verify-otp",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "verify-otp"
-                            ]
-                        },
-                        "description": "Verify OTP to activate account. On success the role profile row (CHW/Nurse/Mother) is auto-created."
-                    }
-                },
-                {
-                    "name": "Login",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('access_token', d.access_token);",
-                                    "    pm.environment.set('refresh_token', d.refresh_token);",
-                                    "    pm.environment.set('user_id', d.user.id);",
-                                    "    pm.environment.set('user_role', d.user.role);",
-                                    "    pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
-                                    "    console.log('✅ Login successful!');",
-                                    "    console.log('👤 ' + d.user.first_name + ' ' + d.user.last_name + ' (' + d.user.role + ')');",
-                                    "    console.log('📧 Email: ' + (d.user.email || 'not set'));",
-                                    "    console.log('➡️  Next: Complete ' + d.user.role.toUpperCase() + ' Profile');",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"pin\": \"1234\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/login",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "login"
-                            ]
-                        },
-                        "description": "Login. Response now includes first_name, last_name, email, and name (joined)."
-                    }
-                },
-                {
-                    "name": "Refresh Token",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    pm.environment.set('access_token', pm.response.json().access_token);",
-                                    "    pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{refresh_token}}",
-                                "type": "text"
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/refresh",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "refresh"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get Profile",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/profile",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "profile"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Logout",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    pm.environment.unset('access_token');",
-                                    "    pm.environment.unset('refresh_token');",
-                                    "    pm.environment.unset('token_expiry');",
-                                    "    pm.environment.unset('user_id');",
-                                    "    console.log('Logged out. Tokens cleared.');",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/logout",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "logout"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Logout All Sessions",
-                    "request": {
-                        "method": "POST",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/logout-all",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "logout-all"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Resend OTP",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    pm.environment.set('otp_code', pm.response.json().otp_code);",
-                                    "    console.log('New OTP: ' + pm.response.json().otp_code);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone_number\": \"+254700000001\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/auth/resend-otp",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "auth",
-                                "resend-otp"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Mothers",
-            "description": "Mother profile management",
-            "item": [
-                {
-                    "name": "Complete Mother Profile",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    pm.environment.set('mother_id', pm.response.json().mother_id);",
-                                    "    console.log('✅ Mother profile created. ID: ' + pm.response.json().mother_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-09-20\",\n  \"location\": \"Nairobi\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/mothers/complete-profile",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "mothers",
-                                "complete-profile"
-                            ]
-                        },
-                        "description": "Complete mother profile (dob and due_date are now nullable — can be left out and filled later from dashboard)."
-                    }
-                },
-                {
-                    "name": "Get Mother Profile",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    const d = pm.response.json();",
-                                    "    console.log('👤 ' + d.name + ' | 📅 DOB: ' + d.dob + ' | 📍 ' + d.location);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "mothers",
-                                "{{mother_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Update Mother Profile",
-                    "request": {
-                        "method": "PUT",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"first_name\": \"Grace\",\n  \"last_name\": \"Wanjiku\",\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-10-01\",\n  \"location\": \"Kiambu\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "mothers",
-                                "{{mother_id}}"
-                            ]
-                        },
-                        "description": "Update mother profile. Accepts first_name + last_name (preferred) OR full_name (auto-split on first space). All fields optional."
-                    }
-                },
-                {
-                    "name": "Delete Mother Profile (Admin)",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "mothers",
-                                "{{mother_id}}"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "CHWs",
-            "description": "Community Health Worker management",
-            "item": [
-                {
-                    "name": "Complete CHW Profile",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    pm.environment.set('chw_id', pm.response.json().chw_id);",
-                                    "    console.log('✅ CHW profile created. ID: ' + pm.response.json().chw_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"license_number\": \"CHW2026001\",\n  \"location\": \"Nairobi Central Health Center\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/complete-profile",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "complete-profile"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get CHW Profile",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "{{chw_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Update CHW Profile",
-                    "request": {
-                        "method": "PUT",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"first_name\": \"James\",\n  \"last_name\": \"Kamau\",\n  \"license_number\": \"CHW2026001-RENEWED\",\n  \"location\": \"Nairobi West Health Center\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "{{chw_id}}"
-                            ]
-                        },
-                        "description": "Update CHW profile. Accepts first_name + last_name (preferred) OR full_name (auto-split). All fields optional."
-                    }
-                },
-                {
-                    "name": "List All CHWs",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Delete CHW Profile (Admin)",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "{{chw_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get Assigned Mothers",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "{{chw_id}}",
-                                "mothers"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Assign Mother to CHW",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "chws",
-                                "{{chw_id}}",
-                                "assign_mother"
-                            ]
-                        },
-                        "description": "Assign a mother to this CHW. Max 20 active mothers per CHW. Uses {{chw_id}} and {{mother_id}} from environment."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Nurses",
-            "description": "Nurse management",
-            "item": [
-                {
-                    "name": "Complete Nurse Profile",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    pm.environment.set('nurse_id', pm.response.json().nurse_id);",
-                                    "    console.log('✅ Nurse profile created. ID: ' + pm.response.json().nurse_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"license_number\": \"RN2026001\",\n  \"location\": \"Kenyatta National Hospital\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses/complete-profile",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nurses",
-                                "complete-profile"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get Nurse Profile",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nurses",
-                                "{{nurse_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Update Nurse Profile",
-                    "request": {
-                        "method": "PUT",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"first_name\": \"Mary\",\n  \"last_name\": \"Akinyi\",\n  \"license_number\": \"RN2026001-RENEWED\",\n  \"location\": \"Nairobi Women's Hospital\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nurses",
-                                "{{nurse_id}}"
-                            ]
-                        },
-                        "description": "Update Nurse profile. Accepts first_name + last_name (preferred) OR full_name (auto-split). All fields optional."
-                    }
-                },
-                {
-                    "name": "List All Nurses",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nurses"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Delete Nurse Profile (Admin)",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nurses",
-                                "{{nurse_id}}"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Next of Kin",
-            "description": "Next of Kin management for mothers",
-            "item": [
-                {
-                    "name": "Add Next of Kin",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    pm.environment.set('nok_id', pm.response.json().id);",
-                                    "    console.log('✅ NOK added. ID: ' + pm.response.json().id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"user_id\": {{mother_id}},\n  \"mother_name\": \"Grace Wanjiku\",\n  \"name\": \"Peter Mwangi\",\n  \"phone\": \"+254745678901\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nextofkin/",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nextofkin",
-                                ""
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get Next of Kin List",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nextofkin/{{mother_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nextofkin",
-                                "{{mother_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Update Next of Kin",
-                    "request": {
-                        "method": "PUT",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"name\": \"Peter Mwangi Kariuki\",\n  \"phone\": \"+254745678999\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Spouse\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nextofkin",
-                                "{{nok_id}}"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Delete Next of Kin",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "nextofkin",
-                                "{{nok_id}}"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Verifications",
-            "description": "Phone verification and OTP management",
-            "item": [
-                {
-                    "name": "Get Verification Status",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/verifications/+254712345678",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "verifications",
-                                "+254712345678"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "List All Verifications (Admin)",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/verifications",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "verifications"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Send OTP Directly",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200 && pm.response.json().otp_code) {",
-                                    "    pm.environment.set('otp_code', pm.response.json().otp_code);",
-                                    "    console.log('OTP sent: ' + pm.response.json().otp_code);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone\": \"+254712345678\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/verifications/send",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "verifications",
-                                "send"
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Verify OTP Directly",
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"phone\": \"+254712345678\",\n  \"code\": \"{{otp_code}}\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/verifications/verify",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "verifications",
-                                "verify"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Educational Materials",
-            "description": "Educational content and materials",
-            "item": [
-                {
-                    "name": "Get Educational Material by ID",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/educational_material/1",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "educational_material",
-                                "1"
-                            ]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Profile Photos",
-            "description": "Upload and manage profile photos for each user role.\n\nAll write/read endpoints require Bearer token ({{access_token}}).\nThe file-serving endpoint (GET .../file/<filename>) is public — the UUID in the filename acts as the access control.\n\nFlow:\n1. Upload Photo → saves file and returns file_url\n2. Get My Photo → returns metadata + URL\n3. Open file_url in browser to view the actual image",
-            "item": [
-                {
-                    "name": "Upload Profile Photo",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('photo_url', d.file_url);",
-                                    "    pm.environment.set('photo_id', d.photo_id);",
-                                    "    console.log('✅ Photo uploaded!');",
-                                    "    console.log('🔗 URL: ' + d.file_url);",
-                                    "    console.log('📦 Size: ' + d.file_size + ' bytes | ' + d.mime_type);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [],
-                        "body": {
-                            "mode": "formdata",
-                            "formdata": [
-                                {
-                                    "key": "photo",
-                                    "type": "file",
-                                    "description": "Select a jpg / jpeg / png / webp image (max 5 MB)"
-                                }
-                            ]
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/profile/photo",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "profile",
-                                "photo"
-                            ]
-                        },
-                        "description": "Upload (or replace) the logged-in user's profile photo.\n\n• Body: multipart/form-data with field name `photo`\n• Accepted types: jpg, jpeg, png, webp\n• Max size: 5 MB\n• Previous active photo is automatically deactivated (kept for audit history)\n• Returns: photo_id, file_url, file_name, file_size, mime_type, uploaded_at"
-                    }
-                },
-                {
-                    "name": "Get My Profile Photo",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('photo_url', d.file_url);",
-                                    "    console.log('📸 Photo found');",
-                                    "    console.log('🔗 URL: ' + pm.environment.get('base_url') + d.file_url);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/profile/photo",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "profile",
-                                "photo"
-                            ]
-                        },
-                        "description": "Get the current logged-in user's active profile photo metadata."
-                    }
-                },
-                {
-                    "name": "Get Any User's Profile Photo",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/profile/photo/{{user_id}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "profile",
-                                "photo",
-                                "{{user_id}}"
-                            ]
-                        },
-                        "description": "Get any user's active photo by their user_id.\nUseful for CHWs viewing a mother's photo, or nurses viewing CHW profiles.\nReplace {{user_id}} with the target user's ID."
-                    }
-                },
-                {
-                    "name": "View / Serve Photo File",
-                    "request": {
-                        "auth": {
-                            "type": "noauth"
-                        },
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/profile/photo/file/user_1_abc123.jpg",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "profile",
-                                "photo",
-                                "file",
-                                "user_1_abc123.jpg"
-                            ]
-                        },
-                        "description": "Serve the actual image bytes. No authentication required — the UUID in the filename acts as access control.\n\nReplace the filename with the file_url path returned by the upload or get endpoints.\n\nExample full URL: {{base_url}}/api/v1/profile/photo/file/user_3_f4a1b2c3d4e5.jpg"
-                    }
-                },
-                {
-                    "name": "Delete Profile Photo",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 200) {",
-                                    "    pm.environment.unset('photo_url');",
-                                    "    pm.environment.unset('photo_id');",
-                                    "    console.log('🗑️ Profile photo removed.');",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/profile/photo",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "profile",
-                                "photo"
-                            ]
-                        },
-                        "description": "Deactivate (soft-delete) the current user's active profile photo. The file and DB record are kept for audit purposes but the photo is no longer returned as active."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Assignments (Mother-CHW)",
-            "description": "Mother-CHW assignment management. A CHW can be assigned multiple mothers (up to 20 active). Nurses can view all CHWs assigned under them.",
-            "item": [
-                {
-                    "name": "Assign Mother to CHW",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('assignment_id', d.assignment_id);",
-                                    "    console.log('✅ Mother assigned. Assignment ID: ' + d.assignment_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "chws", "{{chw_id}}", "assign_mother"]
-                        },
-                        "description": "Assign a mother to a CHW. If an inactive assignment already exists for this CHW+Mother pair it is reactivated instead of creating a duplicate. Max 20 active assignments per CHW."
-                    }
-                },
-                {
-                    "name": "Get CHW Assigned Mothers",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "chws", "{{chw_id}}", "mothers"]
-                        },
-                        "description": "List all mothers assigned to a specific CHW (active assignments only)."
-                    }
-                },
-                {
-                    "name": "List All Assignments",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/assignments?status=active",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "assignments"],
-                            "query": [
-                                { "key": "chw_id", "value": "{{chw_id}}", "disabled": true },
-                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
-                                { "key": "nurse_id", "value": "{{nurse_id}}", "disabled": true },
-                                { "key": "status", "value": "active" }
-                            ]
-                        },
-                        "description": "List assignments with optional filters: chw_id, mother_id, nurse_id, status (active/inactive)."
-                    }
-                },
-                {
-                    "name": "Update Assignment Status",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"status\": \"inactive\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}/status",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "assignments", "{{assignment_id}}", "status"]
-                        },
-                        "description": "Set status to 'active' or 'inactive'. Re-activating counts toward the 20-mother limit."
-                    }
-                },
-                {
-                    "name": "Delete Assignment",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "assignments", "{{assignment_id}}"]
-                        },
-                        "description": "Hard-delete an assignment record. Use status PATCH to deactivate instead where audit trail is needed."
-                    }
-                },
-                {
-                    "name": "Get Nurse Assignments (CHW Team)",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}/assignments",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "nurses", "{{nurse_id}}", "assignments"]
-                        },
-                        "description": "List all CHWs (and their assigned mothers) that are in the same ward as the nurse."
-                    }
-                },
-                {
-                    "name": "Get Assigned CHW for Mother",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/mothers/{{user_id}}/assigned_chw",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "mothers", "{{user_id}}", "assigned_chw"]
-                        },
-                        "description": "Get the CHW assigned to a mother (by mother's user_id). Returns CHW user_id, profile_id, name, phone, location, and assignment details. Used by mother dashboard to know their health worker."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Escalations",
-            "description": "Escalation management — CHW raises a case to a nurse. Tracks status through open → in_progress → resolved/rejected.",
-            "item": [
-                {
-                    "name": "Create Escalation",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('escalation_id', d.id);",
-                                    "    console.log('✅ Escalation created. ID: ' + d.id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"chw_id\": {{chw_id}},\n  \"nurse_id\": {{nurse_id}},\n  \"mother_id\": {{mother_id}},\n  \"case_description\": \"Mother is experiencing severe headaches and elevated blood pressure.\",\n  \"issue_type\": \"hypertension\",\n  \"priority\": \"high\",\n  \"notes\": \"Advised rest and hydration. BP reading: 150/95.\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations"]
-                        },
-                        "description": "Create a new escalation. Required: chw_id, nurse_id, mother_id, case_description. Optional: issue_type, priority (low/medium/high/critical, default medium), notes."
-                    }
-                },
-                {
-                    "name": "List Escalations",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations?status=open",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations"],
-                            "query": [
-                                { "key": "chw_id", "value": "{{chw_id}}", "disabled": true },
-                                { "key": "nurse_id", "value": "{{nurse_id}}", "disabled": true },
-                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
-                                { "key": "status", "value": "open" },
-                                { "key": "priority", "value": "high", "disabled": true }
-                            ]
-                        },
-                        "description": "List escalations with optional filters: chw_id, nurse_id, mother_id, status (open/in_progress/resolved/rejected), priority (low/medium/high/critical)."
-                    }
-                },
-                {
-                    "name": "Get Escalation by ID",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
-                        }
-                    }
-                },
-                {
-                    "name": "Update Escalation Status",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Reviewing the case now. Scheduled call with CHW.\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}/status",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations", "{{escalation_id}}", "status"]
-                        },
-                        "description": "Update escalation status. Valid transitions: open → in_progress → resolved/rejected. Setting status to 'resolved' or 'rejected' auto-sets resolved_at timestamp. notes field is optional."
-                    }
-                },
-                {
-                    "name": "Update Escalation (Partial)",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"priority\": \"critical\",\n  \"notes\": \"Condition has worsened. Patient needs immediate attention.\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
-                        },
-                        "description": "Partially update an escalation record. Editable fields: case_description, issue_type, priority, notes. Status changes should use the /status endpoint."
-                    }
-                },
-                {
-                    "name": "Delete Escalation",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "escalations", "{{escalation_id}}"]
-                        },
-                        "description": "Hard-delete an escalation. Only allowed when status is 'open' to prevent losing resolved case history."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Appointments",
-            "description": "Appointment schedule management. Mothers, CHWs and Nurses can schedule and track visits. Supports date range filtering and recurring appointments.",
-            "item": [
-                {
-                    "name": "Create Appointment",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "if (pm.response.code === 201) {",
-                                    "    const d = pm.response.json();",
-                                    "    pm.environment.set('appointment_id', d.id);",
-                                    "    console.log('✅ Appointment created. ID: ' + d.id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"mother_id\": {{mother_id}},\n  \"health_worker_id\": {{chw_id}},\n  \"scheduled_time\": \"2026-03-15T10:00:00\",\n  \"appointment_type\": \"prenatal_checkup\",\n  \"location\": \"Nairobi Central Health Center\",\n  \"notes\": \"Routine 28-week checkup. Bring previous scan results.\",\n  \"recurrence\": \"none\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments"]
-                        },
-                        "description": "Create a new appointment. Required: mother_id, health_worker_id, scheduled_time (ISO 8601). Optional: appointment_type, location, notes, recurrence (none/weekly/biweekly/monthly, default none)."
-                    }
-                },
-                {
-                    "name": "List Appointments",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments?status=scheduled",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments"],
-                            "query": [
-                                { "key": "mother_id", "value": "{{mother_id}}", "disabled": true },
-                                { "key": "health_worker_id", "value": "{{chw_id}}", "disabled": true },
-                                { "key": "status", "value": "scheduled" },
-                                { "key": "include_deleted", "value": "true", "disabled": true },
-                                { "key": "deleted_only", "value": "true", "disabled": true },
-                                { "key": "from", "value": "2026-03-01", "disabled": true },
-                                { "key": "to", "value": "2026-03-31", "disabled": true }
-                            ]
-                        },
-                        "description": "List appointments with optional filters: mother_id, health_worker_id, status (scheduled/completed/cancelled/rescheduled), include_deleted, deleted_only, from (YYYY-MM-DD), to (YYYY-MM-DD)."
-                    }
-                },
-                {
-                    "name": "Get Appointment by ID",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
-                        }
-                    }
-                },
-                {
-                    "name": "Update Appointment",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"scheduled_time\": \"2026-03-16T11:00:00\",\n  \"location\": \"Nairobi West Health Center\",\n  \"notes\": \"Rescheduled due to public holiday.\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
-                        },
-                        "description": "Partially update appointment fields: scheduled_time, appointment_type, location, notes, recurrence, health_worker_id."
-                    }
-                },
-                {
-                    "name": "Update Appointment Status",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"status\": \"completed\",\n  \"notes\": \"Checkup completed successfully. All vitals normal.\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/status",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "status"]
-                        },
-                        "description": "Update appointment status. Valid values: scheduled, completed, cancelled, rescheduled."
-                    }
-                },
-                {
-                    "name": "Delete Appointment (Dashboard Only)",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"reason\": \"deleted_from_chw_dashboard\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "delete"]
-                        },
-                        "description": "Non-destructive delete. Removes appointment from the current user's dashboard only. Record remains in DB and for other users."
-                    }
-                },
-                {
-                    "name": "Restore Deleted Appointment (Dashboard)",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}", "delete"]
-                        },
-                        "description": "Restore a dashboard-deleted appointment for the current user. Restore window is 15 days."
-                    }
-                },
-                {
-                    "name": "Delete Appointment",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "appointments", "{{appointment_id}}"]
-                        },
-                        "description": "Hard delete endpoint is intentionally disabled and returns 405. Use POST /appointments/{id}/delete instead."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Device Tokens (FCM)",
-            "description": "Register and remove Firebase Cloud Messaging tokens per device. Used by the push-notification layer to deliver offline alerts. Requires Bearer auth.\n\nNote: Firebase is currently stubbed out — activate by installing firebase-admin on the backend and firebase on the frontend.",
-            "item": [
-                {
-                    "name": "Register Device Token",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            { "key": "Content-Type", "value": "application/json" },
-                            { "key": "Authorization", "value": "Bearer {{access_token}}" }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"fcm_token\": \"dXNlcl9mY21fdG9rZW5fZXhhbXBsZQ==\",\n  \"device_info\": \"Android 14 / Chrome 125\"\n}",
-                            "options": { "raw": { "language": "json" } }
-                        },
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/device-tokens",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "device-tokens"]
-                        },
-                        "description": "Upsert an FCM device token for the authenticated user. If the token already exists for this user it is silently updated (ON CONFLICT). Returns 200 on update, 201 on first registration.\n\nBody fields:\n- fcm_token (required): FCM registration token string from the browser/app\n- device_info (optional): human-readable device description"
-                    }
-                },
-                {
-                    "name": "Remove Device Token",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [
-                            { "key": "Authorization", "value": "Bearer {{access_token}}" }
-                        ],
-                        "url": {
-                            "raw": "{{base_url}}/api/v1/device-tokens?fcm_token={{fcm_token}}",
-                            "host": ["{{base_url}}"],
-                            "path": ["api", "v1", "device-tokens"],
-                            "query": [
-                                {
-                                    "key": "fcm_token",
-                                    "value": "{{fcm_token}}",
-                                    "description": "The FCM token to deregister (passed as query param, not body)"
-                                }
-                            ]
-                        },
-                        "description": "Remove a previously registered FCM token for the authenticated user. Typically called on logout or when the OS recycles the token. Token is passed as a query-string param because DELETE requests should not carry a body."
-                    }
-                }
-            ]
-        }
+  "info": {
+    "_postman_id": "remy-care-connect-v6",
+    "name": "RemyCareConnect API v7 - Complete",
+    "description": "Full API collection: Auth, Mothers, CHWs, Nurses, Next of Kin, Verifications, Photos, Assignments, Escalations, Appointments, Device Tokens, Daily Check-ins, Weight, Ultrasound, Resources, Nutrition, Notifications, Locations",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 6,
+      "minor": 2,
+      "patch": 0
+    }
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
     ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-refresh token if expiring in next 5 minutes",
+          "const accessToken = pm.environment.get('access_token');",
+          "const refreshToken = pm.environment.get('refresh_token');",
+          "const tokenExpiry = pm.environment.get('token_expiry');",
+          "if (accessToken && refreshToken && tokenExpiry) {",
+          "    const now = new Date().getTime();",
+          "    const expiry = new Date(tokenExpiry).getTime();",
+          "    if (now >= (expiry - 300000)) {",
+          "        pm.sendRequest({",
+          "            url: pm.environment.get('base_url') + '/api/v1/auth/refresh',",
+          "            method: 'POST',",
+          "            header: { 'Authorization': 'Bearer ' + refreshToken, 'Content-Type': 'application/json' }",
+          "        }, function (err, response) {",
+          "            if (!err && response.code === 200) {",
+          "                pm.environment.set('access_token', response.json().access_token);",
+          "                pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
+          "                console.log('Token refreshed automatically');",
+          "            }",
+          "        });",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5001",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token_expiry",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_role",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mother_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "chw_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nurse_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "otp_code",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nok_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assignment_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "escalation_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "appointment_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkin_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "fcm_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sub_county_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "ward_id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "description": "System health and status endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "Check if the API server is running and healthy"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "description": "Hybrid authentication system with JWT and sessions",
+      "item": [
+        {
+          "name": "Register Mother",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('user_id', d.user_id);",
+                  "    pm.environment.set('otp_code', d.otp_code);",
+                  "    console.log('Registered. OTP: ' + d.otp_code);",
+                  "    console.log('Name: ' + d.first_name + ' ' + d.last_name);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Wanjiku\",\n  \"email\": \"jane.wanjiku@example.com\",\n  \"pin\": \"1234\",\n  \"role\": \"mother\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new mother. first_name, last_name, and email are the new fields. email is optional."
+          }
+        },
+        {
+          "name": "Register CHW",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('user_id', d.user_id);",
+                  "    pm.environment.set('otp_code', d.otp_code);",
+                  "    console.log('CHW Registered. OTP: ' + d.otp_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000002\",\n  \"first_name\": \"James\",\n  \"last_name\": \"Kamau\",\n  \"email\": \"james.kamau@example.com\",\n  \"pin\": \"1234\",\n  \"role\": \"chw\",\n  \"license_number\": \"CHW2026001\",\n  \"location\": \"Nairobi Central Health Center\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new CHW. license_number and location are required for CHW/Nurse roles."
+          }
+        },
+        {
+          "name": "Register Nurse",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('user_id', d.user_id);",
+                  "    pm.environment.set('otp_code', d.otp_code);",
+                  "    console.log('Nurse Registered. OTP: ' + d.otp_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000003\",\n  \"first_name\": \"Mary\",\n  \"last_name\": \"Akinyi\",\n  \"email\": \"mary.akinyi@hospital.ke\",\n  \"pin\": \"1234\",\n  \"role\": \"nurse\",\n  \"license_number\": \"RN2026001\",\n  \"location\": \"Kenyatta National Hospital\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new Nurse."
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    console.log('OTP verified. You can now login.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"otp_code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Verify OTP to activate account. On success the role profile row (CHW/Nurse/Mother) is auto-created."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('access_token', d.access_token);",
+                  "    pm.environment.set('refresh_token', d.refresh_token);",
+                  "    pm.environment.set('user_id', d.user.id);",
+                  "    pm.environment.set('user_role', d.user.role);",
+                  "    pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
+                  "    console.log('\u2705 Login successful!');",
+                  "    console.log('\ud83d\udc64 ' + d.user.first_name + ' ' + d.user.last_name + ' (' + d.user.role + ')');",
+                  "    console.log('\ud83d\udce7 Email: ' + (d.user.email || 'not set'));",
+                  "    console.log('\u27a1\ufe0f  Next: Complete ' + d.user.role.toUpperCase() + ' Profile');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000001\",\n  \"pin\": \"1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login. Response now includes first_name, last_name, email, and name (joined)."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.environment.set('access_token', pm.response.json().access_token);",
+                  "    pm.environment.set('token_expiry', new Date(Date.now() + 24*60*60*1000).toISOString());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refresh_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "profile"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.environment.unset('access_token');",
+                  "    pm.environment.unset('refresh_token');",
+                  "    pm.environment.unset('token_expiry');",
+                  "    pm.environment.unset('user_id');",
+                  "    console.log('Logged out. Tokens cleared.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout All Sessions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout-all"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resend OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.environment.set('otp_code', pm.response.json().otp_code);",
+                  "    console.log('New OTP: ' + pm.response.json().otp_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"+254700000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/resend-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "resend-otp"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mothers",
+      "description": "Mother profile management",
+      "item": [
+        {
+          "name": "Complete Mother Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set('mother_id', pm.response.json().mother_id);",
+                  "    console.log('\u2705 Mother profile created. ID: ' + pm.response.json().mother_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-09-20\",\n  \"location\": \"Nairobi\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/complete-profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "complete-profile"
+              ]
+            },
+            "description": "Complete mother profile (dob and due_date are now nullable \u2014 can be left out and filled later from dashboard)."
+          }
+        },
+        {
+          "name": "Get Mother Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const d = pm.response.json();",
+                  "    console.log('\ud83d\udc64 ' + d.name + ' | \ud83d\udcc5 DOB: ' + d.dob + ' | \ud83d\udccd ' + d.location);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Mother Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Grace\",\n  \"last_name\": \"Wanjiku\",\n  \"dob\": \"1995-06-15\",\n  \"due_date\": \"2026-10-01\",\n  \"location\": \"Kiambu\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}"
+              ]
+            },
+            "description": "Update mother profile. Accepts first_name + last_name (preferred) OR full_name (auto-split on first space). All fields optional."
+          }
+        },
+        {
+          "name": "Delete Mother Profile (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "CHWs",
+      "description": "Community Health Worker management",
+      "item": [
+        {
+          "name": "Complete CHW Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set('chw_id', pm.response.json().chw_id);",
+                  "    console.log('\u2705 CHW profile created. ID: ' + pm.response.json().chw_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_number\": \"CHW2026001\",\n  \"location\": \"Nairobi Central Health Center\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/complete-profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "complete-profile"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get CHW Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update CHW Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"James\",\n  \"last_name\": \"Kamau\",\n  \"license_number\": \"CHW2026001-RENEWED\",\n  \"location\": \"Nairobi West Health Center\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}"
+              ]
+            },
+            "description": "Update CHW profile. Accepts first_name + last_name (preferred) OR full_name (auto-split). All fields optional."
+          }
+        },
+        {
+          "name": "List All CHWs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete CHW Profile (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Assigned Mothers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}",
+                "mothers"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Assign Mother to CHW",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}",
+                "assign_mother"
+              ]
+            },
+            "description": "Assign a mother to this CHW. Max 20 active mothers per CHW. Uses {{chw_id}} and {{mother_id}} from environment."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Nurses",
+      "description": "Nurse management",
+      "item": [
+        {
+          "name": "Complete Nurse Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set('nurse_id', pm.response.json().nurse_id);",
+                  "    console.log('\u2705 Nurse profile created. ID: ' + pm.response.json().nurse_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"license_number\": \"RN2026001\",\n  \"location\": \"Kenyatta National Hospital\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/complete-profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses",
+                "complete-profile"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Nurse Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses",
+                "{{nurse_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Nurse Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Mary\",\n  \"last_name\": \"Akinyi\",\n  \"license_number\": \"RN2026001-RENEWED\",\n  \"location\": \"Nairobi Women's Hospital\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses",
+                "{{nurse_id}}"
+              ]
+            },
+            "description": "Update Nurse profile. Accepts first_name + last_name (preferred) OR full_name (auto-split). All fields optional."
+          }
+        },
+        {
+          "name": "List All Nurses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Nurse Profile (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses",
+                "{{nurse_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Next of Kin",
+      "description": "Next of Kin management for mothers",
+      "item": [
+        {
+          "name": "Add Next of Kin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set('nok_id', pm.response.json().id);",
+                  "    console.log('\u2705 NOK added. ID: ' + pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{mother_id}},\n  \"mother_name\": \"Grace Wanjiku\",\n  \"name\": \"Peter Mwangi\",\n  \"phone\": \"+254745678901\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Husband\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nextofkin",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Next of Kin List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/{{mother_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nextofkin",
+                "{{mother_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Next of Kin",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Peter Mwangi Kariuki\",\n  \"phone\": \"+254745678999\",\n  \"sex\": \"Male\",\n  \"relationship\": \"Spouse\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nextofkin",
+                "{{nok_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Next of Kin",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nextofkin/{{nok_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nextofkin",
+                "{{nok_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verifications",
+      "description": "Phone verification and OTP management",
+      "item": [
+        {
+          "name": "Get Verification Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/+254712345678",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "verifications",
+                "+254712345678"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List All Verifications (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "verifications"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send OTP Directly",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().otp_code) {",
+                  "    pm.environment.set('otp_code', pm.response.json().otp_code);",
+                  "    console.log('OTP sent: ' + pm.response.json().otp_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+254712345678\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/send",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "verifications",
+                "send"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify OTP Directly",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+254712345678\",\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verifications/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "verifications",
+                "verify"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Educational Materials",
+      "description": "Educational content and materials",
+      "item": [
+        {
+          "name": "Get Educational Material by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/educational_material/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "educational_material",
+                "1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Profile Photos",
+      "description": "Upload and manage profile photos for each user role.\n\nAll write/read endpoints require Bearer token ({{access_token}}).\nThe file-serving endpoint (GET .../file/<filename>) is public \u2014 the UUID in the filename acts as the access control.\n\nFlow:\n1. Upload Photo \u2192 saves file and returns file_url\n2. Get My Photo \u2192 returns metadata + URL\n3. Open file_url in browser to view the actual image",
+      "item": [
+        {
+          "name": "Upload Profile Photo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('photo_url', d.file_url);",
+                  "    pm.environment.set('photo_id', d.photo_id);",
+                  "    console.log('\u2705 Photo uploaded!');",
+                  "    console.log('\ud83d\udd17 URL: ' + d.file_url);",
+                  "    console.log('\ud83d\udce6 Size: ' + d.file_size + ' bytes | ' + d.mime_type);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "photo",
+                  "type": "file",
+                  "description": "Select a jpg / jpeg / png / webp image (max 5 MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/photo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile",
+                "photo"
+              ]
+            },
+            "description": "Upload (or replace) the logged-in user's profile photo.\n\n\u2022 Body: multipart/form-data with field name `photo`\n\u2022 Accepted types: jpg, jpeg, png, webp\n\u2022 Max size: 5 MB\n\u2022 Previous active photo is automatically deactivated (kept for audit history)\n\u2022 Returns: photo_id, file_url, file_name, file_size, mime_type, uploaded_at"
+          }
+        },
+        {
+          "name": "Get My Profile Photo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('photo_url', d.file_url);",
+                  "    console.log('\ud83d\udcf8 Photo found');",
+                  "    console.log('\ud83d\udd17 URL: ' + pm.environment.get('base_url') + d.file_url);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/photo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile",
+                "photo"
+              ]
+            },
+            "description": "Get the current logged-in user's active profile photo metadata."
+          }
+        },
+        {
+          "name": "Get Any User's Profile Photo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/photo/{{user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile",
+                "photo",
+                "{{user_id}}"
+              ]
+            },
+            "description": "Get any user's active photo by their user_id.\nUseful for CHWs viewing a mother's photo, or nurses viewing CHW profiles.\nReplace {{user_id}} with the target user's ID."
+          }
+        },
+        {
+          "name": "View / Serve Photo File",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/photo/file/user_1_abc123.jpg",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile",
+                "photo",
+                "file",
+                "user_1_abc123.jpg"
+              ]
+            },
+            "description": "Serve the actual image bytes. No authentication required \u2014 the UUID in the filename acts as access control.\n\nReplace the filename with the file_url path returned by the upload or get endpoints.\n\nExample full URL: {{base_url}}/api/v1/profile/photo/file/user_3_f4a1b2c3d4e5.jpg"
+          }
+        },
+        {
+          "name": "Delete Profile Photo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.environment.unset('photo_url');",
+                  "    pm.environment.unset('photo_id');",
+                  "    console.log('\ud83d\uddd1\ufe0f Profile photo removed.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/profile/photo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile",
+                "photo"
+              ]
+            },
+            "description": "Deactivate (soft-delete) the current user's active profile photo. The file and DB record are kept for audit purposes but the photo is no longer returned as active."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Assignments (Mother-CHW)",
+      "description": "Mother-CHW assignment management. A CHW can be assigned multiple mothers (up to 20 active). Nurses can view all CHWs assigned under them.",
+      "item": [
+        {
+          "name": "Assign Mother to CHW",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('assignment_id', d.assignment_id);",
+                  "    console.log('\u2705 Mother assigned. Assignment ID: ' + d.assignment_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_id\": {{mother_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/assign_mother",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}",
+                "assign_mother"
+              ]
+            },
+            "description": "Assign a mother to a CHW. If an inactive assignment already exists for this CHW+Mother pair it is reactivated instead of creating a duplicate. Max 20 active assignments per CHW."
+          }
+        },
+        {
+          "name": "Get CHW Assigned Mothers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/mothers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}",
+                "mothers"
+              ]
+            },
+            "description": "List all mothers assigned to a specific CHW (active assignments only)."
+          }
+        },
+        {
+          "name": "List All Assignments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assignments?status=active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assignments"
+              ],
+              "query": [
+                {
+                  "key": "chw_id",
+                  "value": "{{chw_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "mother_id",
+                  "value": "{{mother_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "nurse_id",
+                  "value": "{{nurse_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "List assignments with optional filters: chw_id, mother_id, nurse_id, status (active/inactive)."
+          }
+        },
+        {
+          "name": "Update Assignment Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assignments",
+                "{{assignment_id}}",
+                "status"
+              ]
+            },
+            "description": "Set status to 'active' or 'inactive'. Re-activating counts toward the 20-mother limit."
+          }
+        },
+        {
+          "name": "Delete Assignment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/assignments/{{assignment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assignments",
+                "{{assignment_id}}"
+              ]
+            },
+            "description": "Hard-delete an assignment record. Use status PATCH to deactivate instead where audit trail is needed."
+          }
+        },
+        {
+          "name": "Get Nurse Assignments (CHW Team)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nurses/{{nurse_id}}/assignments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nurses",
+                "{{nurse_id}}",
+                "assignments"
+              ]
+            },
+            "description": "List all CHWs (and their assigned mothers) that are in the same ward as the nurse."
+          }
+        },
+        {
+          "name": "Get Assigned CHW for Mother",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{user_id}}/assigned_chw",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{user_id}}",
+                "assigned_chw"
+              ]
+            },
+            "description": "Get the CHW assigned to a mother (by mother's user_id). Returns CHW user_id, profile_id, name, phone, location, and assignment details. Used by mother dashboard to know their health worker."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Escalations",
+      "description": "Escalation management \u2014 CHW raises a case to a nurse. Tracks status through open \u2192 in_progress \u2192 resolved/rejected.",
+      "item": [
+        {
+          "name": "Create Escalation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('escalation_id', d.id);",
+                  "    console.log('\u2705 Escalation created. ID: ' + d.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chw_id\": {{chw_id}},\n  \"nurse_id\": {{nurse_id}},\n  \"mother_id\": {{mother_id}},\n  \"case_description\": \"Mother is experiencing severe headaches and elevated blood pressure.\",\n  \"issue_type\": \"hypertension\",\n  \"priority\": \"high\",\n  \"notes\": \"Advised rest and hydration. BP reading: 150/95.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations"
+              ]
+            },
+            "description": "Create a new escalation. Required: chw_id, nurse_id, mother_id, case_description. Optional: issue_type, priority (low/medium/high/critical, default medium), notes."
+          }
+        },
+        {
+          "name": "List Escalations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations?status=open",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations"
+              ],
+              "query": [
+                {
+                  "key": "chw_id",
+                  "value": "{{chw_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "nurse_id",
+                  "value": "{{nurse_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "mother_id",
+                  "value": "{{mother_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "open"
+                },
+                {
+                  "key": "priority",
+                  "value": "high",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List escalations with optional filters: chw_id, nurse_id, mother_id, status (open/in_progress/resolved/rejected), priority (low/medium/high/critical)."
+          }
+        },
+        {
+          "name": "Get Escalation by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations",
+                "{{escalation_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Escalation Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Reviewing the case now. Scheduled call with CHW.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations",
+                "{{escalation_id}}",
+                "status"
+              ]
+            },
+            "description": "Update escalation status. Valid transitions: open \u2192 in_progress \u2192 resolved/rejected. Setting status to 'resolved' or 'rejected' auto-sets resolved_at timestamp. notes field is optional."
+          }
+        },
+        {
+          "name": "Update Escalation (Partial)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"critical\",\n  \"notes\": \"Condition has worsened. Patient needs immediate attention.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations",
+                "{{escalation_id}}"
+              ]
+            },
+            "description": "Partially update an escalation record. Editable fields: case_description, issue_type, priority, notes. Status changes should use the /status endpoint."
+          }
+        },
+        {
+          "name": "Delete Escalation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/escalations/{{escalation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "escalations",
+                "{{escalation_id}}"
+              ]
+            },
+            "description": "Hard-delete an escalation. Only allowed when status is 'open' to prevent losing resolved case history."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Appointments",
+      "description": "Appointment schedule management. Mothers, CHWs and Nurses can schedule and track visits. Supports date range filtering and recurring appointments.",
+      "item": [
+        {
+          "name": "Create Appointment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const d = pm.response.json();",
+                  "    pm.environment.set('appointment_id', d.id);",
+                  "    console.log('\u2705 Appointment created. ID: ' + d.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mother_id\": {{mother_id}},\n  \"health_worker_id\": {{chw_id}},\n  \"scheduled_time\": \"2026-03-15T10:00:00\",\n  \"appointment_type\": \"prenatal_checkup\",\n  \"location\": \"Nairobi Central Health Center\",\n  \"notes\": \"Routine 28-week checkup. Bring previous scan results.\",\n  \"recurrence\": \"none\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments"
+              ]
+            },
+            "description": "Create a new appointment. Required: mother_id, health_worker_id, scheduled_time (ISO 8601). Optional: appointment_type, location, notes, recurrence (none/weekly/biweekly/monthly, default none)."
+          }
+        },
+        {
+          "name": "List Appointments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments?status=scheduled",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments"
+              ],
+              "query": [
+                {
+                  "key": "mother_id",
+                  "value": "{{mother_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "health_worker_id",
+                  "value": "{{chw_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "scheduled"
+                },
+                {
+                  "key": "include_deleted",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "deleted_only",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "from",
+                  "value": "2026-03-01",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "2026-03-31",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List appointments with optional filters: mother_id, health_worker_id, status (scheduled/completed/cancelled/rescheduled), include_deleted, deleted_only, from (YYYY-MM-DD), to (YYYY-MM-DD)."
+          }
+        },
+        {
+          "name": "Get Appointment by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Appointment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_time\": \"2026-03-16T11:00:00\",\n  \"location\": \"Nairobi West Health Center\",\n  \"notes\": \"Rescheduled due to public holiday.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}"
+              ]
+            },
+            "description": "Partially update appointment fields: scheduled_time, appointment_type, location, notes, recurrence, health_worker_id."
+          }
+        },
+        {
+          "name": "Update Appointment Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\",\n  \"notes\": \"Checkup completed successfully. All vitals normal.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}",
+                "status"
+              ]
+            },
+            "description": "Update appointment status. Valid values: scheduled, completed, cancelled, rescheduled."
+          }
+        },
+        {
+          "name": "Delete Appointment (Dashboard Only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"deleted_from_chw_dashboard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}",
+                "delete"
+              ]
+            },
+            "description": "Non-destructive delete. Removes appointment from the current user's dashboard only. Record remains in DB and for other users."
+          }
+        },
+        {
+          "name": "Restore Deleted Appointment (Dashboard)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}/delete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}",
+                "delete"
+              ]
+            },
+            "description": "Restore a dashboard-deleted appointment for the current user. Restore window is 15 days."
+          }
+        },
+        {
+          "name": "Delete Appointment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/appointments/{{appointment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments",
+                "{{appointment_id}}"
+              ]
+            },
+            "description": "Hard delete endpoint is intentionally disabled and returns 405. Use POST /appointments/{id}/delete instead."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Device Tokens (FCM)",
+      "description": "Register and remove Firebase Cloud Messaging tokens per device. Used by the push-notification layer to deliver offline alerts. Requires Bearer auth.\n\nNote: Firebase is currently stubbed out \u2014 activate by installing firebase-admin on the backend and firebase on the frontend.",
+      "item": [
+        {
+          "name": "Register Device Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcm_token\": \"dXNlcl9mY21fdG9rZW5fZXhhbXBsZQ==\",\n  \"device_info\": \"Android 14 / Chrome 125\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/device-tokens",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "device-tokens"
+              ]
+            },
+            "description": "Upsert an FCM device token for the authenticated user. If the token already exists for this user it is silently updated (ON CONFLICT). Returns 200 on update, 201 on first registration.\n\nBody fields:\n- fcm_token (required): FCM registration token string from the browser/app\n- device_info (optional): human-readable device description"
+          }
+        },
+        {
+          "name": "Remove Device Token",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/device-tokens?fcm_token={{fcm_token}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "device-tokens"
+              ],
+              "query": [
+                {
+                  "key": "fcm_token",
+                  "value": "{{fcm_token}}",
+                  "description": "The FCM token to deregister (passed as query param, not body)"
+                }
+              ]
+            },
+            "description": "Remove a previously registered FCM token for the authenticated user. Typically called on logout or when the OS recycles the token. Token is passed as a query-string param because DELETE requests should not carry a body."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Daily Check-ins",
+      "item": [
+        {
+          "name": "Submit My Check-in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"response\": \"not_ok\",\n  \"comment\": \"Feeling dizzy\",\n  \"symptoms\": [\n    \"headache\",\n    \"dizziness\"\n  ],\n  \"channel\": \"app\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/checkins",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "checkins"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Check-ins",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/checkins",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "checkins"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Latest Check-in",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/checkins/latest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "checkins",
+                "latest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Check-in for Mother (by ID)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"response\": \"ok\",\n  \"comment\": \"Feeling well\",\n  \"symptoms\": [],\n  \"channel\": \"app\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/checkins",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "checkins"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Check-ins for Mother (by ID)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/checkins",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "checkins"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Latest Check-in for Mother (by ID)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/checkins/latest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "checkins",
+                "latest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CHW's Mothers' Check-ins",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/chws/{{chw_id}}/checkins",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chws",
+                "{{chw_id}}",
+                "checkins"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Soft-Delete Check-in (Dashboard)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkins/{{checkin_id}}/delete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkins",
+                "{{checkin_id}}",
+                "delete"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Restore Check-in (Dashboard)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkins/{{checkin_id}}/delete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkins",
+                "{{checkin_id}}",
+                "delete"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Weight Log",
+      "item": [
+        {
+          "name": "Log My Weight",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 68.5,\n  \"notes\": \"Feeling good\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/weight",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "weight"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Weight History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/weight",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "weight"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mother's Weight History (by ID)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/weight",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "weight"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ultrasound Records",
+      "item": [
+        {
+          "name": "Get My Ultrasound Records",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/me/ultrasound",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "me",
+                "ultrasound"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Mother's Ultrasound Records (by ID)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/ultrasound",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "ultrasound"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Record Ultrasound Scan (CHW/Nurse)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"week_number\": 28,\n  \"scan_date\": \"2025-04-10\",\n  \"fetal_weight_grams\": 1100.5,\n  \"fetal_length_cm\": 35.2,\n  \"heart_rate_bpm\": 140,\n  \"notes\": \"Normal scan\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mothers/{{mother_id}}/ultrasound",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mothers",
+                "{{mother_id}}",
+                "ultrasound"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Resources",
+      "item": [
+        {
+          "name": "List All Resources",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/resources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "resources"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Resources for Mother Role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/resources?role=mother",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "resources?role=mother"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Resources for CHW Role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/resources?role=chw",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "resources?role=chw"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Nutrition Recommendations",
+      "item": [
+        {
+          "name": "List Recommendations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nutrition/recommendations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nutrition",
+                "recommendations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Daily Meal Plan (Pseudo-random)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nutrition/recommendations?daily_plan=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nutrition",
+                "recommendations?daily_plan=true"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Breakfast Recommendations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nutrition/recommendations?meal_type=breakfast",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nutrition",
+                "recommendations?meal_type=breakfast"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Trimester-filtered Recommendations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/nutrition/recommendations?trimester=second",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "nutrition",
+                "recommendations?trimester=second"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List My Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unread Notifications Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications?unread_only=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications?unread_only=true"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "unread-count"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notification_id}}",
+                "read"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Push Notification Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/metrics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "metrics"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Locations",
+      "item": [
+        {
+          "name": "List Sub-Counties",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/sub-counties",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "sub-counties"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Wards for Sub-County",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/sub-counties/{{sub_county_id}}/wards",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "sub-counties",
+                "{{sub_county_id}}",
+                "wards"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Ward to Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ward_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/ward",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "ward"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
 }

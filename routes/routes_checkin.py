@@ -3,10 +3,13 @@ routes_checkin.py
 ─────────────────
 Daily check-in CRUD for the RemyCareConnect app.
 
-  POST   /mothers/<mother_id>/checkins          – mother submits check-in
-  GET    /mothers/<mother_id>/checkins          – list check-ins for a mother (newest first)
-  GET    /mothers/<mother_id>/checkins/latest   – single most-recent check-in
-  GET    /chws/<chw_id>/checkins                – all recent check-ins for CHW's assigned mothers
+  POST   /mothers/me/checkins                  – authenticated mother submits check-in
+  GET    /mothers/me/checkins                  – mother lists own check-ins (newest first)
+  GET    /mothers/me/checkins/latest           – mother's most-recent check-in
+  POST   /mothers/<mother_id>/checkins         – submit check-in by mother ID
+  GET    /mothers/<mother_id>/checkins         – list check-ins for a mother (newest first)
+  GET    /mothers/<mother_id>/checkins/latest  – single most-recent check-in
+  GET    /chws/<chw_id>/checkins               – all recent check-ins for CHW's assigned mothers
 """
 
 from flask import Blueprint, request, jsonify
@@ -38,18 +41,44 @@ def _serialize(c, mother_name: str | None = None):
     }
 
 
-# ── Submit check-in ────────────────────────────────────────────────────────────
-@bp.route('/mothers/<int:mother_id>/checkins', methods=['POST'])
-@require_auth
-def create_checkin(mother_id):
-    """
-    Request body:
-      { "response": "ok" | "not_ok", "comment": "<optional>", "channel": "app" }
-    """
-    mother = Mother.query.get(mother_id)
-    if not mother:
-        return jsonify({"error": "Mother not found."}), 404
+# ── Mother's own check-in endpoints (self-service, no mother_id needed) ───────
 
+@bp.route('/mothers/me/checkins', methods=['POST'])
+@require_auth
+def create_my_checkin():
+    """Authenticated mother submits her own daily check-in."""
+    user = get_current_user()
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({"error": "Mother profile not found."}), 404
+    return _do_create_checkin(mother)
+
+
+@bp.route('/mothers/me/checkins', methods=['GET'])
+@require_auth
+def get_my_checkins():
+    """Authenticated mother lists her own check-ins."""
+    user = get_current_user()
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({"error": "Mother profile not found."}), 404
+    return _do_list_checkins(mother)
+
+
+@bp.route('/mothers/me/checkins/latest', methods=['GET'])
+@require_auth
+def get_my_latest_checkin():
+    """Authenticated mother retrieves her most recent check-in."""
+    user = get_current_user()
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({"error": "Mother profile not found."}), 404
+    return _do_latest_checkin(mother)
+
+
+# ── Submit check-in ────────────────────────────────────────────────────────────
+def _do_create_checkin(mother):
+    """Core check-in creation logic shared by /me and /<id> endpoints."""
     data = request.get_json() or {}
 
     response = data.get('response', '').strip().lower()
@@ -68,7 +97,7 @@ def create_checkin(mother_id):
     symptoms = [s.strip() for s in symptoms if isinstance(s, str) and s.strip()]
 
     checkin = DailyCheckin(
-        mother_id=mother_id,
+        mother_id=mother.id,
         response=response,
         comment=data.get('comment', '').strip() or None,
         symptoms=symptoms,
@@ -88,7 +117,7 @@ def create_checkin(mother_id):
     socketio.emit("checkin:new", payload, to=f"user:{mother.user_id}")
     # 2. Notify the assigned CHW(s) via their profile room and user room
     assignment = MotherCHWAssignment.query.filter_by(
-        mother_id=mother_id, status='active'
+        mother_id=mother.id, status='active'
     ).first()
     if assignment:
         socketio.emit("checkin:new", payload, to=f"chw:{assignment.chw_id}")
@@ -110,6 +139,44 @@ def create_checkin(mother_id):
     return jsonify(payload), 201
 
 
+def _do_list_checkins(mother):
+    """Core list-checkins logic shared by /me and /<id> endpoints."""
+    limit = min(int(request.args.get('limit', 30)), 100)
+    checkins = (DailyCheckin.query
+                .filter_by(mother_id=mother.id)
+                .order_by(desc(DailyCheckin.created_at))
+                .limit(limit)
+                .all())
+    return jsonify({
+        "checkins": [_serialize(c, mother.mother_name) for c in checkins],
+        "total":    len(checkins),
+    }), 200
+
+
+def _do_latest_checkin(mother):
+    """Core latest-checkin logic shared by /me and /<id> endpoints."""
+    checkin = (DailyCheckin.query
+               .filter_by(mother_id=mother.id)
+               .order_by(desc(DailyCheckin.created_at))
+               .first())
+    if not checkin:
+        return jsonify({"checkin": None}), 200
+    return jsonify({"checkin": _serialize(checkin, mother.mother_name)}), 200
+
+
+@bp.route('/mothers/<int:mother_id>/checkins', methods=['POST'])
+@require_auth
+def create_checkin(mother_id):
+    """
+    Request body:
+      { "response": "ok" | "not_ok", "comment": "<optional>", "channel": "app" }
+    """
+    mother = Mother.query.get(mother_id)
+    if not mother:
+        return jsonify({"error": "Mother not found."}), 404
+    return _do_create_checkin(mother)
+
+
 # ── List check-ins for a mother ────────────────────────────────────────────────
 @bp.route('/mothers/<int:mother_id>/checkins', methods=['GET'])
 @require_auth
@@ -117,18 +184,7 @@ def list_checkins(mother_id):
     mother = Mother.query.get(mother_id)
     if not mother:
         return jsonify({"error": "Mother not found."}), 404
-
-    limit = min(int(request.args.get('limit', 30)), 100)
-    checkins = (DailyCheckin.query
-                .filter_by(mother_id=mother_id)
-                .order_by(desc(DailyCheckin.created_at))
-                .limit(limit)
-                .all())
-
-    return jsonify({
-        "checkins": [_serialize(c, mother.mother_name) for c in checkins],
-        "total":    len(checkins),
-    }), 200
+    return _do_list_checkins(mother)
 
 
 # ── Latest check-in for a mother ──────────────────────────────────────────────
@@ -138,16 +194,7 @@ def latest_checkin(mother_id):
     mother = Mother.query.get(mother_id)
     if not mother:
         return jsonify({"error": "Mother not found."}), 404
-
-    checkin = (DailyCheckin.query
-               .filter_by(mother_id=mother_id)
-               .order_by(desc(DailyCheckin.created_at))
-               .first())
-
-    if not checkin:
-        return jsonify({"checkin": None}), 200
-
-    return jsonify({"checkin": _serialize(checkin, mother.mother_name)}), 200
+    return _do_latest_checkin(mother)
 
 
 # ── All recent check-ins for a CHW's assigned mothers ─────────────────────────
