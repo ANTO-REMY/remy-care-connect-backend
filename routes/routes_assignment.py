@@ -204,7 +204,7 @@ def get_assigned_chw_for_mother(user_id):
             "profile_id": chw.id,
             "name": chw.chw_name,
             "phone": chw_user.phone_number if chw_user else None,
-            "location": chw.assigned_area,
+            "location": chw.location,
         },
         "assignment_id": assignment.id,
         "assigned_at": assignment.assigned_at.isoformat() if assignment.assigned_at else None,

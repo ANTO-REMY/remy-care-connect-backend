@@ -25,9 +25,13 @@ def register_nurse():
     try:
         pin_hash = hashlib.sha256(data['pin'].encode()).hexdigest()
         now = datetime.utcnow()
+        name_parts = data['full_name'].strip().split(' ', 1)
+        if not name_parts or not name_parts[0]:
+            return jsonify({"error": "full_name must not be blank."}), 400
         user = User(
             phone_number=data['phone'],
-            name=data['full_name'],
+            first_name=name_parts[0],
+            last_name=name_parts[1] if len(name_parts) > 1 else '',
             pin_hash=pin_hash,
             role='nurse',
             created_at=now,

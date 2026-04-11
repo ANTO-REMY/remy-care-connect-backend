@@ -25,6 +25,7 @@ def get_my_mother_profile():
         "location":   mother.location,
         "phone":      user.phone_number,
     }), 200
+@bp.route('/mothers/complete-profile', methods=['POST'])
 @require_auth
 @require_role('mother')
 def complete_mother_profile():
