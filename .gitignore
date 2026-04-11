@@ -1,24 +1,17 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyd
 
 # Virtual environments
-venv/
 .venv/
-env/
+venv/
+ENV/
 
-# Environment files
+# Environment / secrets
 .env
+firebase-adminsdk.json
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-
-# pytest
-.pytest_cache/
-
-# Uploads (user-generated content)
-uploads/profile_photos/
+# OS files
+.DS_Store
+Thumbs.db

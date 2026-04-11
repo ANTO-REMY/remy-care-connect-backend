@@ -17,12 +17,22 @@ Connection flow
 
 All event names the server can push to clients
 ──────────────────────────────────────────────
-  checkin:new          payload: serialised CheckIn dict
-  appointment:created  payload: serialised Appointment dict
-  appointment:updated  payload: serialised Appointment dict
-  escalation:created   payload: serialised Escalation dict
-  escalation:updated   payload: serialised Escalation dict
+  checkin:new              payload: serialised CheckIn dict
+  appointment:created      payload: serialised Appointment dict
+  appointment:updated      payload: serialised Appointment dict
+  appointment:deleted      payload: { id }
+  escalation:created       payload: serialised Escalation dict
+  escalation:updated       payload: serialised Escalation dict
+  escalation:deleted       payload: { id }
+  assignment:created       payload: serialised Assignment dict
+  assignment:status_changed payload: serialised Assignment dict
+  assignment:deleted       payload: { id, chw_id, mother_id }
+  mother:profile_updated   payload: mother profile dict
+  chw:profile_updated      payload: CHW profile dict
+  nurse:profile_updated    payload: nurse profile dict
 """
+
+import logging
 
 from flask import request
 from flask_socketio import join_room, leave_room, emit
@@ -30,6 +40,11 @@ from flask_jwt_extended import decode_token
 from jwt.exceptions import DecodeError, ExpiredSignatureError
 
 from socket_manager import socketio
+from models import (
+    db, AppointmentSchedule, AppointmentHiddenForUser, Escalation, CHW, Nurse, Mother, User,
+)
+from models_standard import MotherCHWAssignment
+from datetime import datetime, timezone, timedelta
 
 
 # ── connect ───────────────────────────────────────────────────────────────────
@@ -111,3 +126,126 @@ def on_join_rooms(data):
 @socketio.on("disconnect")
 def on_disconnect():
     pass  # Flask-SocketIO cleans up rooms automatically
+
+
+# ── request_sync ──────────────────────────────────────────────────────────────
+
+def _appt_serialize(a):
+    creator_name = a.creator_user.name if a.creator_user else None
+    creator_role = a.creator_user.role if a.creator_user else None
+    return {
+        "id": a.id,
+        "mother_id": a.mother_id,
+        "health_worker_id": a.health_worker_id,
+        "created_by_user_id": a.created_by_user_id,
+        "mother_name": a.mother_user.name if a.mother_user else None,
+        "hw_name": a.hw_user.name if a.hw_user else None,
+        "creator_name": creator_name,
+        "creator_role": creator_role,
+        "scheduled_time": a.scheduled_time.isoformat() if a.scheduled_time else None,
+        "appointment_type": a.appointment_type,
+        "status": a.status,
+        "notes": a.notes,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+def _escalation_serialize(e):
+    return {
+        "id": e.id,
+        "chw_id": e.chw_id,
+        "chw_name": e.chw_name,
+        "nurse_id": e.nurse_id,
+        "nurse_name": e.nurse_name,
+        "mother_id": e.mother_id,
+        "mother_name": e.mother_name,
+        "case_description": e.case_description,
+        "issue_type": e.issue_type,
+        "notes": e.notes,
+        "priority": e.priority,
+        "status": e.status,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+        "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
+    }
+
+
+@socketio.on("request_sync")
+def on_request_sync(data):
+    """
+    Client emits this on reconnect to catch up on missed events.
+    Payload: { "role": "mother"|"chw"|"nurse", "user_id": int, "profile_id": int|null }
+
+    Server responds with a `sync` event containing the latest state snapshot
+    relevant to the caller's role so the client can reconcile.
+    """
+    if not isinstance(data, dict):
+        return
+
+    token = request.args.get("token", "")
+    if not token:
+        return
+
+    try:
+        decoded = decode_token(token)
+    except (DecodeError, ExpiredSignatureError, Exception):
+        return
+
+    identity = decoded.get("sub", {})
+    if isinstance(identity, dict):
+        user_id = identity.get("id") or identity.get("user_id")
+        role = identity.get("role", "")
+    else:
+        user_id = identity
+        role = ""
+
+    if not user_id:
+        return
+
+    payload = {"role": role, "user_id": user_id}
+    hidden_subq = db.session.query(AppointmentHiddenForUser.appointment_id).filter_by(user_id=user_id)
+
+    try:
+        if role == "mother":
+            # Appointments where mother_id = user_id
+            appts = AppointmentSchedule.query.filter_by(mother_id=user_id).filter(
+                ~AppointmentSchedule.id.in_(hidden_subq)
+            ).all()
+            payload["appointments"] = [_appt_serialize(a) for a in appts]
+
+        elif role == "chw":
+            profile_id = data.get("profile_id")
+            if profile_id:
+                # Appointments where health_worker_id = user_id
+                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).filter(
+                    ~AppointmentSchedule.id.in_(hidden_subq)
+                ).all()
+                payload["appointments"] = [_appt_serialize(a) for a in appts]
+                # Escalations where chw_id = profile_id
+                escs = Escalation.query.filter_by(chw_id=profile_id).all()
+                payload["escalations"] = [_escalation_serialize(e) for e in escs]
+                # Active assignments
+                assigns = MotherCHWAssignment.query.filter_by(
+                    chw_id=profile_id, status="active"
+                ).all()
+                payload["assignments"] = [{
+                    "id": a.id, "mother_id": a.mother_id,
+                    "mother_name": a.mother_name, "status": a.status,
+                } for a in assigns]
+
+        elif role == "nurse":
+            profile_id = data.get("profile_id")
+            if profile_id:
+                # Appointments where health_worker_id = user_id
+                appts = AppointmentSchedule.query.filter_by(health_worker_id=user_id).filter(
+                    ~AppointmentSchedule.id.in_(hidden_subq)
+                ).all()
+                payload["appointments"] = [_appt_serialize(a) for a in appts]
+                # Escalations where nurse_id = profile_id
+                escs = Escalation.query.filter_by(nurse_id=profile_id).all()
+                payload["escalations"] = [_escalation_serialize(e) for e in escs]
+
+    except Exception:
+        logging.exception("[WS] request_sync error for user %s", user_id)  # Partial payload acceptable
+
+    emit("sync", payload)

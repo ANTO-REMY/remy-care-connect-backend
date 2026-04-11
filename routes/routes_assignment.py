@@ -2,7 +2,9 @@ from flask import Blueprint, jsonify, request
 from models import db, CHW, Mother, Nurse, User
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
+from socket_manager import socketio
+from notifications import create_user_notification
 
 bp = Blueprint('assignment', __name__)
 
@@ -18,6 +20,47 @@ def _serialize_assignment(a):
         "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
         "status": a.status,
     }
+
+
+def _emit_assignment_event(event: str, assignment, mother: Mother = None):
+    """Emit an assignment event to all relevant rooms (CHW + mother, dual-room pattern)."""
+    payload = _serialize_assignment(assignment)
+    title_by_event = {
+        "assignment:created": "New Mother Assignment",
+        "assignment:status_changed": "Assignment Status Changed",
+        "assignment:deleted": "Assignment Removed",
+    }
+    title = title_by_event.get(event, "Assignment Update")
+    message = f"{assignment.mother_name} assignment has been updated."
+    # CHW profile room
+    socketio.emit(event, payload, to=f"chw:{assignment.chw_id}")
+    # CHW user room (dual-room: ensures delivery regardless of which room the client joined)
+    chw = CHW.query.get(assignment.chw_id)
+    if chw:
+        socketio.emit(event, payload, to=f"user:{chw.user_id}")
+        create_user_notification(
+            user_id=chw.user_id,
+            event_type=event,
+            title=title,
+            message=message,
+            url="/dashboard/chw",
+            entity_type="assignment",
+            entity_id=assignment.id,
+        )
+    # Mother's user room
+    if mother is None:
+        mother = Mother.query.get(assignment.mother_id)
+    if mother:
+        socketio.emit(event, payload, to=f"user:{mother.user_id}")
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type=event,
+            title=title,
+            message=f"Your CHW assignment has been updated.",
+            url="/dashboard/mother",
+            entity_type="assignment",
+            entity_id=assignment.id,
+        )
 
 # ── CHW endpoints ─────────────────────────────────────────────────────────────
 
@@ -40,7 +83,7 @@ def get_assigned_mothers(chw_id):
             "mother_id": mother.id,
             "user_id": mother.user_id,        # users.id — needed for appointment creation
             "name": mother.mother_name,
-            "phone": user.phone_number if user else None,
+            "phone_number": user.phone_number if user else None,
             "location": mother.location,
             "status": a.status,
             "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
@@ -91,8 +134,9 @@ def assign_mother_to_chw(chw_id):
     ).first()
     if inactive:
         inactive.status = 'active'
-        inactive.assigned_at = datetime.utcnow()
+        inactive.assigned_at = datetime.now(timezone.utc)
         db.session.commit()
+        _emit_assignment_event("assignment:created", inactive, mother)
         return jsonify({"message": "Assignment reactivated.", **_serialize_assignment(inactive)}), 200
 
     try:
@@ -105,6 +149,7 @@ def assign_mother_to_chw(chw_id):
         )
         db.session.add(assignment)
         db.session.commit()
+        _emit_assignment_event("assignment:created", assignment, mother)
         return jsonify({"message": "Mother assigned to CHW successfully.",
                         **_serialize_assignment(assignment)}), 201
     except Exception as e:
@@ -124,6 +169,7 @@ def update_assignment_status(assignment_id):
         return jsonify({"error": "Assignment not found."}), 404
     assignment.status = new_status
     db.session.commit()
+    _emit_assignment_event("assignment:status_changed", assignment)
     return jsonify({"message": f"Assignment status updated to '{new_status}'.",
                     **_serialize_assignment(assignment)}), 200
 
@@ -134,8 +180,38 @@ def delete_assignment(assignment_id):
     assignment = MotherCHWAssignment.query.get(assignment_id)
     if not assignment:
         return jsonify({"error": "Assignment not found."}), 404
+    # Capture data before deletion for the WS event
+    chw_id = assignment.chw_id
+    mother = Mother.query.get(assignment.mother_id)
+    payload = {"id": assignment.id, "chw_id": chw_id, "mother_id": assignment.mother_id}
     db.session.delete(assignment)
     db.session.commit()
+    # ── WebSocket push ────────────────────────────────────────────────────
+    socketio.emit("assignment:deleted", payload, to=f"chw:{chw_id}")
+    chw = CHW.query.get(chw_id)
+    if chw:
+        socketio.emit("assignment:deleted", payload, to=f"user:{chw.user_id}")
+        create_user_notification(
+            user_id=chw.user_id,
+            event_type="assignment:deleted",
+            title="Assignment Removed",
+            message="A mother assignment was removed from your dashboard.",
+            url="/dashboard/chw",
+            entity_type="assignment",
+            entity_id=assignment_id,
+        )
+    if mother:
+        socketio.emit("assignment:deleted", payload, to=f"user:{mother.user_id}")
+        create_user_notification(
+            user_id=mother.user_id,
+            event_type="assignment:deleted",
+            title="CHW Assignment Removed",
+            message="Your CHW assignment has been removed.",
+            url="/dashboard/mother",
+            entity_type="assignment",
+            entity_id=assignment_id,
+        )
+    # ─────────────────────────────────────────────────────────────────────
     return jsonify({"message": "Assignment deleted."}), 200
 
 
@@ -203,7 +279,7 @@ def get_assigned_chw_for_mother(user_id):
             "user_id": chw.user_id,
             "profile_id": chw.id,
             "name": chw.chw_name,
-            "phone": chw_user.phone_number if chw_user else None,
+            "phone_number": chw_user.phone_number if chw_user else None,
             "location": chw.location,
         },
         "assignment_id": assignment.id,

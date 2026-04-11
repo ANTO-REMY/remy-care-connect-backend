@@ -130,14 +130,14 @@ def register():
         db.session.commit()
         
         # In production, send OTP via SMS/WhatsApp
-        # For now, return it in response for testing
+        # OTP is printed to the server console for development — do NOT return it in the response
+        print(f"[DEV] OTP for {phone_number}: {otp_code}")
         return jsonify({
             'message': 'Registration successful. Please verify your phone number.',
             'user_id': user.id,
             'role': role,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'otp_code': otp_code,  # Remove this in production
             'expires_in': '10 minutes'
         }), 201
         
@@ -330,6 +330,15 @@ def login():
     # Create session token for database tracking (not Flask session)
     session_token = create_user_session(user.id, device_info, ip_address)
     
+    # Get profile_id based on role
+    profile_id = None
+    if user.role == 'mother' and user.mother:
+        profile_id = user.mother.id
+    elif user.role == 'chw' and user.chw:
+        profile_id = user.chw.id
+    elif user.role == 'nurse' and user.nurse:
+        profile_id = user.nurse.id
+    
     # Update last login
     user.updated_at = datetime.now(timezone.utc)
     db.session.commit()
@@ -344,7 +353,8 @@ def login():
             'first_name': user.first_name,
             'last_name': user.last_name,
             'name': user.name,
-            'role': user.role
+            'role': user.role,
+            'profile_id': profile_id
         }
     }), 200
 
@@ -404,14 +414,24 @@ def get_profile():
     """Get current user profile"""
     user = get_current_user()
     
+    # Get profile_id based on role
+    profile_id = None
+    if user.role == 'mother' and user.mother:
+        profile_id = user.mother.id
+    elif user.role == 'chw' and user.chw:
+        profile_id = user.chw.id
+    elif user.role == 'nurse' and user.nurse:
+        profile_id = user.nurse.id
+    
     profile_data = {
         'id': user.id,
         'phone_number': user.phone_number,
         'name': user.name,
         'role': user.role,
+        'profile_id': profile_id,
         'is_verified': user.is_verified,
         'created_at': user.created_at.isoformat(),
-        'auth_method': request.auth_method
+        'auth_method': getattr(request, 'auth_method', 'jwt')
     }
     
     # Add role-specific data
@@ -473,9 +493,10 @@ def resend_otp():
     
     db.session.add(verification)
     db.session.commit()
-    
+
+    # OTP is printed to the server console for development
+    print(f"[DEV] Resent OTP for {phone_number}: {otp_code}")
     return jsonify({
         'message': 'New OTP sent successfully',
-        'otp_code': otp_code,  # Remove this in production
         'expires_in': '10 minutes'
     }), 200
