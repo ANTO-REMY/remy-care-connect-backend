@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
-from models import db, User, Nurse, Ward
+from models import db, User, Nurse, Ward, CHW, Escalation
+from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user, hash_pin
 from datetime import datetime, timezone
 from socket_manager import socketio
@@ -202,3 +203,44 @@ def list_nurses():
             "created_at": nurse.created_at.isoformat()
         })
     return jsonify({"nurses": result}), 200
+
+@bp.route('/nurses/<int:nurse_id>/chws', methods=['GET'])
+def get_nurse_chws(nurse_id):
+    """Get all CHWs strictly supervised by the nurse (in the same ward) with their stats."""
+    nurse = Nurse.query.get(nurse_id)
+    if not nurse:
+        return jsonify({"error": "Nurse not found."}), 404
+    
+    chws = CHW.query.filter_by(ward_id=nurse.ward_id).all()
+    result = []
+    
+    for chw in chws:
+        user = User.query.get(chw.user_id)
+        if not user:
+            continue
+            
+        mothers_count = MotherCHWAssignment.query.filter_by(chw_id=chw.id, status='active').count()
+        
+        # Count only active escalations strictly tied to this CHW
+        active_cases_count = Escalation.query.filter(
+            Escalation.chw_id == chw.id, 
+            Escalation.status.in_(['pending', 'in_progress'])
+        ).count()
+        
+        # Safety fallback for avatar component mapping string spaces
+        safe_name = chw.chw_name.replace(' ', '+') if chw.chw_name else ''
+        
+        result.append({
+            "id": chw.id,
+            "user_id": user.id,
+            "name": chw.chw_name,
+            "phone_number": user.phone_number,
+            "location": chw.location,
+            "assigned_mothers": mothers_count,
+            "active_cases": active_cases_count,
+            "performance": 100,  # Could be derived from adherence metrics in the future
+            "last_active": chw.created_at.isoformat(),
+            "avatar": f"https://api.dicebear.com/7.x/initials/svg?seed={safe_name}"
+        })
+        
+    return jsonify({"chws": result}), 200
