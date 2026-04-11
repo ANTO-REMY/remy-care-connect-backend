@@ -35,6 +35,29 @@ def create_next_of_kin():
     return jsonify({'message': 'Next of kin added', 'id': kin.id}), 201
 
 
+@bp.route('/nextofkin/me', methods=['GET'])
+@require_auth
+def get_my_next_of_kin():
+    """Return next-of-kin for the currently authenticated mother (resolved from JWT)."""
+    user = get_current_user()
+    mother = Mother.query.filter_by(user_id=user.id).first()
+    if not mother:
+        return jsonify({'error': 'Mother profile not found.'}), 404
+    kin_list = NextOfKin.query.filter_by(user_id=mother.id).all()
+    return jsonify([
+        {
+            'id': k.id,
+            'user_id': k.user_id,
+            'mother_name': k.mother_name,
+            'name': k.name,
+            'phone': k.phone,
+            'sex': k.sex,
+            'relationship': k.relationship,
+            'created_at': k.created_at.isoformat()
+        } for k in kin_list
+    ]), 200
+
+
 @bp.route('/nextofkin/<int:mother_id>', methods=['GET'])
 def get_next_of_kin(mother_id):
     kin_list = NextOfKin.query.filter_by(user_id=mother_id).all()
