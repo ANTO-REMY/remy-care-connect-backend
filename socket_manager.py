@@ -4,6 +4,10 @@ socket_manager.py
 Single Flask-SocketIO instance shared across all blueprints.
 Import `socketio` from here wherever you need to emit events
 (avoids circular imports with app.py / blueprints).
+
+NOTE: async_mode is set to "threading" for Python 3.13 compatibility.
+gevent is unstable on Python 3.13 and causes WinError 10048 (port not released)
+when the server shuts down unexpectedly on Windows.
 """
 
 import os
@@ -19,7 +23,10 @@ socketio = SocketIO(
         "http://localhost:3000",
     ],
     # message_queue=redis_url,  # Disabled for local Windows development without Docker
-    async_mode="threading",  # Force standard threading to bypass Python 3.13 Gevent/Eventlet bugs
+    # Python 3.13-safe websocket runtime — threading is stable; gevent is not on Py3.13/Windows.
+    async_mode="threading",
+    # Avoid handshake-level hard failures when auth rejects; app code disconnects unauthorized clients.
+    always_connect=True,
     # Allow the JWT token to be passed as a query-string param on connect
     # e.g. ?token=<JWT>
     logger=False,

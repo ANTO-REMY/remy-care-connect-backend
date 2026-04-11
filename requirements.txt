@@ -7,9 +7,9 @@ psycopg[binary]==3.2.4
 python-dotenv==1.0.1
 gunicorn==21.2.0
 Flask-CORS==4.0.0
+# flask-socketio runs in threading mode (async_mode="threading") — no gevent required.
+# gevent==23.9.1 does not support Python 3.13 and caused WinError 10048 on Windows.
 flask-socketio==5.3.6
 redis==5.2.1
 requests==2.32.3
-gevent==23.9.1
-gevent-websocket==0.10.1
 firebase-admin==6.6.0

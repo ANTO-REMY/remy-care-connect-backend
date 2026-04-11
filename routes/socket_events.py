@@ -35,7 +35,7 @@ All event names the server can push to clients
 import logging
 
 from flask import request
-from flask_socketio import join_room, leave_room, emit
+from flask_socketio import join_room, leave_room, emit, disconnect
 from flask_jwt_extended import decode_token
 from jwt.exceptions import DecodeError, ExpiredSignatureError
 
@@ -50,16 +50,21 @@ from datetime import datetime, timezone, timedelta
 # ── connect ───────────────────────────────────────────────────────────────────
 
 @socketio.on("connect")
-def on_connect():
+def on_connect(auth=None):
     """
     Authenticates the socket connection using the JWT passed as
     the `token` query-string parameter, then joins the socket into
     its personal and role rooms.
     """
-    token = request.args.get("token", "")
+    token = ""
+    if isinstance(auth, dict):
+        token = auth.get("token", "") or ""
     if not token:
-        # Reject unauthenticated connections
-        return False  # disconnect
+        token = request.args.get("token", "")
+    if not token:
+        emit("auth_error", {"message": "Unauthorized"})
+        disconnect()
+        return
 
     try:
         decoded = decode_token(token)
@@ -75,7 +80,9 @@ def on_connect():
             role    = ""
 
         if not user_id:
-            return False
+            emit("auth_error", {"message": "Unauthorized"})
+            disconnect()
+            return
 
         # Personal room
         join_room(f"user:{user_id}")
@@ -88,7 +95,9 @@ def on_connect():
         request.environ["_ws_role"]    = role
 
     except (DecodeError, ExpiredSignatureError, Exception):
-        return False  # reject
+        emit("auth_error", {"message": "Unauthorized"})
+        disconnect()
+        return
 
 
 # ── join_rooms ────────────────────────────────────────────────────────────────
