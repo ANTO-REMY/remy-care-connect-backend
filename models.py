@@ -239,6 +239,7 @@ class DailyCheckin(db.Model):
     mother_id  = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'), nullable=False)
     response   = db.Column(db.String, nullable=False)   # 'ok' | 'not_ok'
     comment    = db.Column(db.Text)
+    symptoms   = db.Column(JSONB, nullable=False, server_default=db.text("'[]'::jsonb"))  # structured symptom list
     channel    = db.Column(db.String, nullable=False, default='app')  # 'app' | 'whatsapp' | 'sms'
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
 
@@ -406,3 +407,36 @@ class Resource(db.Model):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+
+# WeightLog model: tracks mother's weight throughout pregnancy
+class WeightLog(db.Model):
+    __tablename__ = 'weight_log'
+    id          = db.Column(db.Integer, primary_key=True)
+    mother_id   = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'), nullable=False)
+    weight_kg   = db.Column(db.Numeric(5, 2), nullable=False)
+    week_number = db.Column(db.Integer)
+    notes       = db.Column(db.Text)
+    recorded_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    created_at  = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    mother = db.relationship('Mother', backref=db.backref('weight_logs', lazy=True))
+    recorder = db.relationship('User', foreign_keys=[recorded_by])
+
+
+# UltrasoundRecord model: real fetal measurements from scans
+class UltrasoundRecord(db.Model):
+    __tablename__ = 'ultrasound_record'
+    id                 = db.Column(db.Integer, primary_key=True)
+    mother_id          = db.Column(db.Integer, db.ForeignKey('mothers.id', ondelete='CASCADE'), nullable=False)
+    week_number        = db.Column(db.Integer, nullable=False)
+    fetal_weight_grams = db.Column(db.Numeric(7, 1))
+    fetal_length_cm    = db.Column(db.Numeric(5, 1))
+    heart_rate_bpm     = db.Column(db.Integer)
+    notes              = db.Column(db.Text)
+    recorded_by        = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=False)
+    scan_date          = db.Column(db.Date, nullable=False)
+    created_at         = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    mother = db.relationship('Mother', backref=db.backref('ultrasound_records', lazy=True))
+    recorder = db.relationship('User', foreign_keys=[recorded_by])

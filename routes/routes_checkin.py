@@ -32,6 +32,7 @@ def _serialize(c, mother_name: str | None = None):
         "mother_name": mother_name or (c.mother.mother_name if c.mother else None),
         "response":    c.response,
         "comment":     c.comment,
+        "symptoms":    c.symptoms or [],
         "channel":     c.channel,
         "created_at":  c.created_at.isoformat() if c.created_at else None,
     }
@@ -59,10 +60,18 @@ def create_checkin(mother_id):
     if channel not in VALID_CHANNELS:
         channel = 'app'
 
+    # Parse optional symptoms list
+    symptoms = data.get('symptoms', [])
+    if not isinstance(symptoms, list):
+        symptoms = []
+    # Sanitize: only keep non-empty strings
+    symptoms = [s.strip() for s in symptoms if isinstance(s, str) and s.strip()]
+
     checkin = DailyCheckin(
         mother_id=mother_id,
         response=response,
         comment=data.get('comment', '').strip() or None,
+        symptoms=symptoms,
         channel=channel,
         created_at=datetime.now(timezone.utc),
     )

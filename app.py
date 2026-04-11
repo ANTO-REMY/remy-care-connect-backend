@@ -80,6 +80,10 @@ def create_app():
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
     from routes.routes_device_tokens import bp as device_tokens_bp
     app.register_blueprint(device_tokens_bp, url_prefix='/api/v1')
+    from routes.routes_weight import bp as weight_bp
+    app.register_blueprint(weight_bp, url_prefix='/api/v1')
+    from routes.routes_ultrasound import bp as ultrasound_bp
+    app.register_blueprint(ultrasound_bp, url_prefix='/api/v1')
 
     # Register Socket.IO event handlers (import for side-effects)
     import routes.socket_events  # noqa: F401
