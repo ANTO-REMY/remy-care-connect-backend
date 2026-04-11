@@ -257,6 +257,19 @@ def verify_otp():
 
     if profile_obj is not None:
         db.session.add(profile_obj)
+        
+        # Bootstrap default reminders if mother
+        if user.role == 'mother':
+            from models import Reminder
+            default_reminders = [
+                Reminder(user_id=user.id, title="Take Prenatal Vitamins", type="medication", time_string="08:00", frequency="daily", icon="MED"),
+                Reminder(user_id=user.id, title="Drink 8 glasses of water", type="hydration", time_string="12:00", frequency="daily", icon="H2O"),
+                Reminder(user_id=user.id, title="30-minute walk", type="exercise", time_string="17:00", frequency="daily", icon="WALK"),
+                Reminder(user_id=user.id, title="Daily check-in", type="health", time_string="21:00", frequency="daily", icon="CHECK"),
+                Reminder(user_id=user.id, title="Read pregnancy article", type="education", time_string="10:00", frequency="daily", icon="READ")
+            ]
+            for r in default_reminders:
+                db.session.add(r)
 
     try:
         db.session.commit()

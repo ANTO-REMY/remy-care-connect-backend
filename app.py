@@ -60,6 +60,7 @@ def create_app():
     from routes.routes_locations import bp as locations_bp
     from routes.routes_resources import bp as resources_bp
     from routes.routes_nutrition import bp as nutrition_bp
+    from routes.routes_reminders import bp as reminders_bp
     app.register_blueprint(health_bp, url_prefix='/api/v1')
     app.register_blueprint(auth_bp, url_prefix='/api/v1')
     app.register_blueprint(mothers_bp, url_prefix='/api/v1')
@@ -84,6 +85,7 @@ def create_app():
     app.register_blueprint(weight_bp, url_prefix='/api/v1')
     from routes.routes_ultrasound import bp as ultrasound_bp
     app.register_blueprint(ultrasound_bp, url_prefix='/api/v1')
+    app.register_blueprint(reminders_bp, url_prefix='/api/v1')
 
     # Register Socket.IO event handlers (import for side-effects)
     import routes.socket_events  # noqa: F401
@@ -92,5 +94,13 @@ def create_app():
     # Imported lazily to avoid circular imports during app startup.
     from notifications import init_firebase
     init_firebase()
+
+    # Start scheduler in normal runs and debug-without-reloader runs.
+    # In debug-with-reloader, only start in the reloader child process.
+    run_main = os.environ.get('WERKZEUG_RUN_MAIN')
+    should_start_scheduler = (not app.config['DEBUG']) or (run_main == 'true') or (run_main is None)
+    if should_start_scheduler:
+        from scheduler import init_scheduler
+        init_scheduler(app)
 
     return app

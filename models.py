@@ -33,6 +33,7 @@ class User(db.Model):
     mother = db.relationship('Mother', backref='user', uselist=False)
     chw = db.relationship('CHW', backref='user', uselist=False)
     nurse = db.relationship('Nurse', backref='user', uselist=False)
+    reminders = db.relationship('Reminder', backref='user', foreign_keys='Reminder.user_id', lazy=True, cascade='all, delete-orphan')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -440,3 +441,20 @@ class UltrasoundRecord(db.Model):
 
     mother = db.relationship('Mother', backref=db.backref('ultrasound_records', lazy=True))
     recorder = db.relationship('User', foreign_keys=[recorded_by])
+
+
+# Reminder model: persistent real-time reminders for mothers
+class Reminder(db.Model):
+    __tablename__ = 'reminders'
+    id                 = db.Column(db.Integer, primary_key=True)
+    user_id            = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    title              = db.Column(db.String(255), nullable=False)
+    type               = db.Column(db.String(50), nullable=False)   # 'medication', 'hydration', 'exercise', etc.
+    time_string        = db.Column(db.String(32), nullable=False)   # '8:00 AM', 'Anytime'
+    frequency          = db.Column(db.String(50), nullable=False, default='daily') # 'daily', 'once'
+    icon               = db.Column(db.String(32))                   # 'MED', 'H2O'
+    last_completed_at  = db.Column(db.DateTime(timezone=True))
+    created_at         = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+
+    creator = db.relationship('User', foreign_keys=[created_by_user_id])
