@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from werkzeug.utils import secure_filename
 from models import db, User, ProfilePhoto
 from auth_utils import require_auth, get_current_user
-from datetime import datetime
+from datetime import datetime, timezone
 
 bp = Blueprint('photos', __name__)
 
@@ -70,8 +70,8 @@ def upload_profile_photo():
             mime_type=file.mimetype or f'image/{ext}',
             file_size=len(file_bytes),
             is_active=True,
-            uploaded_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            uploaded_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         db.session.add(photo)
         db.session.commit()
@@ -164,6 +164,6 @@ def delete_profile_photo():
         return jsonify({'error': 'No active profile photo to delete'}), 404
 
     photo.is_active = False
-    photo.updated_at = datetime.utcnow()
+    photo.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify({'message': 'Profile photo removed successfully'}), 200

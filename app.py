@@ -33,7 +33,15 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    CORS(app, origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"], supports_credentials=True)
+    # CORS: origins read from CORS_ORIGINS env var (comma-separated).
+    # In production set: CORS_ORIGINS=https://your-app.vercel.app
+    # Falls back to local dev origins if the variable is not set.
+    _cors_origins_raw = os.getenv(
+        'CORS_ORIGINS',
+        'http://localhost:5173,http://localhost:8080,http://localhost:3000'
+    )
+    _cors_origins = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()]
+    CORS(app, origins=_cors_origins, supports_credentials=True)
     socketio.init_app(app)
 
     from routes.routes_health import bp as health_bp
@@ -47,8 +55,11 @@ def create_app():
     from routes.routes_escalations import bp as escalations_bp
     from routes.routes_appointments import bp as appointments_bp
     from routes.routes_nextofkin import bp as nextofkin_bp
+    from routes.routes_notifications import bp as notifications_bp
     from routes.routes_photos import bp as photos_bp
     from routes.routes_locations import bp as locations_bp
+    from routes.routes_resources import bp as resources_bp
+    from routes.routes_nutrition import bp as nutrition_bp
     app.register_blueprint(health_bp, url_prefix='/api/v1')
     app.register_blueprint(auth_bp, url_prefix='/api/v1')
     app.register_blueprint(mothers_bp, url_prefix='/api/v1')
@@ -60,12 +71,26 @@ def create_app():
     app.register_blueprint(escalations_bp, url_prefix='/api/v1')
     app.register_blueprint(appointments_bp, url_prefix='/api/v1')
     app.register_blueprint(nextofkin_bp, url_prefix='/api/v1')
+    app.register_blueprint(notifications_bp, url_prefix='/api/v1')
     app.register_blueprint(photos_bp, url_prefix='/api/v1')
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
+    app.register_blueprint(resources_bp, url_prefix='/api/v1')
+    app.register_blueprint(nutrition_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
+    from routes.routes_device_tokens import bp as device_tokens_bp
+    app.register_blueprint(device_tokens_bp, url_prefix='/api/v1')
+    from routes.routes_weight import bp as weight_bp
+    app.register_blueprint(weight_bp, url_prefix='/api/v1')
+    from routes.routes_ultrasound import bp as ultrasound_bp
+    app.register_blueprint(ultrasound_bp, url_prefix='/api/v1')
 
     # Register Socket.IO event handlers (import for side-effects)
     import routes.socket_events  # noqa: F401
+
+    # Initialise Firebase Cloud Messaging (no-op if credentials not configured)
+    # Imported lazily to avoid circular imports during app startup.
+    from notifications import init_firebase
+    init_firebase()
 
     return app
