@@ -85,9 +85,10 @@ def get_reminders():
 
     # Merge modern appointments as reminders
     for a in appts:
+        appointment_title = (a.appointment_type or "appointment").replace('_', ' ').title()
         result_reminders.append({
             "id": f"appt_{a.id}", # use string id for appts
-            "title": f"{a.appointment_type.replace('_', ' ').title()}",
+            "title": appointment_title,
             "time": a.scheduled_time.strftime("%I:%M %p"),
             "completed": False, 
             "type": "appointment",
