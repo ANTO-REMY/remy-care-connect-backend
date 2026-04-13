@@ -24,7 +24,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install psycopg2-binary && \
+    pip install "psycopg[binary]" && \
     pip install -r requirements.txt
 
 # Copy project files (excluding cache files via .dockerignore)

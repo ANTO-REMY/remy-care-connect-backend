@@ -103,4 +103,18 @@ def create_app():
         from scheduler import init_scheduler
         init_scheduler(app)
 
+    with app.app_context():
+        try:
+            from africas_talking_service import get_otp_service
+            get_otp_service()
+            enabled = os.getenv('OTP_DELIVERY_ENABLED', 'true').lower() == 'true'
+            sandbox = os.getenv('OTP_SANDBOX_MODE', 'true').lower() == 'true'
+            if enabled:
+                mode = "SANDBOX" if sandbox else "PRODUCTION"
+                app.logger.info("Africa's Talking OTP service initialized (%s mode)", mode)
+            else:
+                app.logger.info("Africa's Talking OTP delivery disabled (console mode)")
+        except Exception as exc:
+            app.logger.error("Failed to initialize Africa's Talking OTP service: %s", exc)
+
     return app

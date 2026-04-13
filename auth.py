@@ -10,18 +10,30 @@ from sqlalchemy.exc import IntegrityError
 import random
 import re
 import json
+import logging
+from africas_talking_service import send_otp, get_otp_service
 
 bp = Blueprint('auth', __name__)
+log = logging.getLogger(__name__)
 
 def normalize_phone_number(phone):
     """Normalize phone number from 07xxxxxxxx to +254xxxxxxxx format"""
     # Remove all spaces and special characters
+    phone = (phone or '').strip()
     cleaned = re.sub(r'[^0-9]', '', phone)
     
     # Only handle 07xxxxxxxx format
     if cleaned.startswith('07') and len(cleaned) == 10:
         # Convert 07xxxxxxxx to +254xxxxxxxx
         return '+254' + cleaned[1:]
+
+    # Handle 254xxxxxxxxx format (no plus)
+    if cleaned.startswith('254') and len(cleaned) == 12:
+        return '+' + cleaned
+
+    # Keep already-normalized +254xxxxxxxxx values
+    if phone.startswith('+254') and len(re.sub(r'[^0-9]', '', phone)) == 12:
+        return '+254' + re.sub(r'[^0-9]', '', phone)[3:]
     
     # Return as-is if not in expected format (will fail validation)
     return phone
@@ -129,16 +141,26 @@ def register():
         db.session.add(verification)
         db.session.commit()
         
-        # In production, send OTP via SMS/WhatsApp
-        # OTP is printed to the server console for development — do NOT return it in the response
-        print(f"[DEV] OTP for {phone_number}: {otp_code}")
+        success, delivery_msg, delivery_method = send_otp(phone_number, otp_code)
+        service = get_otp_service()
+        service.log_otp_delivery(
+            phone_number=phone_number,
+            success=success,
+            method=delivery_method,
+            error=None if success else delivery_msg
+        )
+
+        if not success:
+            log.warning("[OTP] Failed to deliver OTP to %s: %s", phone_number, delivery_msg)
+
         return jsonify({
             'message': 'Registration successful. Please verify your phone number.',
             'user_id': user.id,
             'role': role,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'expires_in': '10 minutes'
+            'expires_in': '10 minutes',
+            'otp_delivery_status': 'sent' if success else 'pending_retry'
         }), 201
         
     except IntegrityError:
@@ -299,7 +321,7 @@ def login():
     """Login with hybrid authentication (JWT + Session)"""
     data = request.get_json()
     
-    phone_number = data.get('phone_number')
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
     pin = data.get('pin')
     
     if not phone_number or not pin:
@@ -474,10 +496,13 @@ def get_profile():
 def resend_otp():
     """Resend OTP for phone verification"""
     data = request.get_json()
-    phone_number = data.get('phone_number')
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
     
     if not phone_number:
         return jsonify({'error': 'Phone number is required'}), 400
+
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format'}), 400
     
     # Find unverified user
     user = User.query.filter_by(phone_number=phone_number, is_verified=False).first()
@@ -507,9 +532,20 @@ def resend_otp():
     db.session.add(verification)
     db.session.commit()
 
-    # OTP is printed to the server console for development
-    print(f"[DEV] Resent OTP for {phone_number}: {otp_code}")
+    success, delivery_msg, delivery_method = send_otp(phone_number, otp_code)
+    service = get_otp_service()
+    service.log_otp_delivery(
+        phone_number=phone_number,
+        success=success,
+        method=delivery_method,
+        error=None if success else delivery_msg
+    )
+
+    if not success:
+        log.warning("[OTP] Failed to resend OTP to %s: %s", phone_number, delivery_msg)
+
     return jsonify({
         'message': 'New OTP sent successfully',
-        'expires_in': '10 minutes'
+        'expires_in': '10 minutes',
+        'otp_delivery_status': 'sent' if success else 'failed'
     }), 200
