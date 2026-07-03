@@ -1,6 +1,15 @@
 from flask import Blueprint, jsonify, request
 from models import db, CHW, Mother, Nurse, User, DailyCheckin, UltrasoundRecord
 from models_standard import MotherCHWAssignment
+from assignment_utils import (
+    ASSIGNMENT_METHOD_MANUAL,
+    AssignmentCapacityError,
+    AssignmentConflictError,
+    assign_mother_to_specific_chw,
+    emit_assignment_event,
+    reassign_mothers_for_chw,
+    serialize_assignment,
+)
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta, date
 from socket_manager import socketio
@@ -12,56 +21,11 @@ bp = Blueprint('assignment', __name__)
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _serialize_assignment(a):
-    return {
-        "id": a.id,
-        "mother_id": a.mother_id,
-        "mother_name": a.mother_name,
-        "chw_id": a.chw_id,
-        "chw_name": a.chw_name,
-        "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
-        "status": a.status,
-    }
+    return serialize_assignment(a)
 
 
 def _emit_assignment_event(event: str, assignment, mother: Mother = None):
-    """Emit an assignment event to all relevant rooms (CHW + mother, dual-room pattern)."""
-    payload = _serialize_assignment(assignment)
-    title_by_event = {
-        "assignment:created": "New Mother Assignment",
-        "assignment:status_changed": "Assignment Status Changed",
-        "assignment:deleted": "Assignment Removed",
-    }
-    title = title_by_event.get(event, "Assignment Update")
-    message = f"{assignment.mother_name} assignment has been updated."
-    # CHW profile room
-    socketio.emit(event, payload, to=f"chw:{assignment.chw_id}")
-    # CHW user room (dual-room: ensures delivery regardless of which room the client joined)
-    chw = CHW.query.get(assignment.chw_id)
-    if chw:
-        socketio.emit(event, payload, to=f"user:{chw.user_id}")
-        create_user_notification(
-            user_id=chw.user_id,
-            event_type=event,
-            title=title,
-            message=message,
-            url="/dashboard/chw",
-            entity_type="assignment",
-            entity_id=assignment.id,
-        )
-    # Mother's user room
-    if mother is None:
-        mother = Mother.query.get(assignment.mother_id)
-    if mother:
-        socketio.emit(event, payload, to=f"user:{mother.user_id}")
-        create_user_notification(
-            user_id=mother.user_id,
-            event_type=event,
-            title=title,
-            message=f"Your CHW assignment has been updated.",
-            url="/dashboard/mother",
-            entity_type="assignment",
-            entity_id=assignment.id,
-        )
+    return emit_assignment_event(event, assignment, mother)
 
 # ── CHW endpoints ─────────────────────────────────────────────────────────────
 
@@ -203,42 +167,28 @@ def assign_mother_to_chw(chw_id):
     if not mother:
         return jsonify({"error": f"Mother with id {mother_id} not found."}), 404
 
-    # Prevent duplicate ACTIVE assignment
-    existing = MotherCHWAssignment.query.filter_by(
-        chw_id=chw_id, mother_id=mother_id, status='active'
-    ).first()
-    if existing:
-        return jsonify({"error": "Mother is already actively assigned to this CHW."}), 409
-
-    # Enforce max 20 ACTIVE mothers per CHW
-    active_count = MotherCHWAssignment.query.filter_by(chw_id=chw_id, status='active').count()
-    if active_count >= 20:
-        return jsonify({"error": "CHW has reached the maximum of 20 active mother assignments."}), 400
-
-    # Re-activate if an inactive record already exists (avoids unique constraint violation)
-    inactive = MotherCHWAssignment.query.filter_by(
-        chw_id=chw_id, mother_id=mother_id, status='inactive'
-    ).first()
-    if inactive:
-        inactive.status = 'active'
-        inactive.assigned_at = datetime.now(timezone.utc)
-        db.session.commit()
-        _emit_assignment_event("assignment:created", inactive, mother)
-        return jsonify({"message": "Assignment reactivated.", **_serialize_assignment(inactive)}), 200
-
     try:
-        assignment = MotherCHWAssignment(
-            chw_id=chw_id,
-            mother_id=mother_id,
-            chw_name=chw.chw_name,
-            mother_name=mother.mother_name,
-            status='active',
+        assignment, changed, result_status = assign_mother_to_specific_chw(
+            chw,
+            mother,
+            assignment_method=ASSIGNMENT_METHOD_MANUAL,
+            conflict_policy='refuse',
         )
-        db.session.add(assignment)
         db.session.commit()
-        _emit_assignment_event("assignment:created", assignment, mother)
+        if changed:
+            _emit_assignment_event("assignment:created", assignment, mother)
+        if result_status == 'reactivated':
+            return jsonify({"message": "Assignment reactivated.", **_serialize_assignment(assignment)}), 200
+        if not changed:
+            return jsonify({"error": "Mother is already actively assigned to this CHW."}), 409
         return jsonify({"message": "Mother assigned to CHW successfully.",
                         **_serialize_assignment(assignment)}), 201
+    except AssignmentConflictError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 409
+    except AssignmentCapacityError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Assignment failed: {str(e)}"}), 500
@@ -254,11 +204,37 @@ def update_assignment_status(assignment_id):
     assignment = MotherCHWAssignment.query.get(assignment_id)
     if not assignment:
         return jsonify({"error": "Assignment not found."}), 404
-    assignment.status = new_status
-    db.session.commit()
-    _emit_assignment_event("assignment:status_changed", assignment)
-    return jsonify({"message": f"Assignment status updated to '{new_status}'.",
-                    **_serialize_assignment(assignment)}), 200
+    if new_status == 'inactive':
+        assignment.status = 'inactive'
+        assignment.reassigned_at = datetime.now(timezone.utc)
+        assignment.reassignment_reason = 'manual_status_update'
+        db.session.commit()
+        _emit_assignment_event("assignment:status_changed", assignment)
+        return jsonify({"message": f"Assignment status updated to '{new_status}'.",
+                        **_serialize_assignment(assignment)}), 200
+
+    mother = Mother.query.get(assignment.mother_id)
+    chw = CHW.query.get(assignment.chw_id)
+    if not mother or not chw:
+        return jsonify({"error": "Related mother or CHW record not found."}), 404
+
+    try:
+        updated_assignment, _changed, _result_status = assign_mother_to_specific_chw(
+            chw,
+            mother,
+            assignment_method=assignment.assignment_method or ASSIGNMENT_METHOD_MANUAL,
+            conflict_policy='refuse',
+        )
+        db.session.commit()
+        _emit_assignment_event("assignment:status_changed", updated_assignment, mother)
+        return jsonify({"message": f"Assignment status updated to '{new_status}'.",
+                        **_serialize_assignment(updated_assignment)}), 200
+    except AssignmentConflictError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 409
+    except AssignmentCapacityError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
 
 
 @bp.route('/assignments/<int:assignment_id>', methods=['DELETE'])

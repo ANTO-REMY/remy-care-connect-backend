@@ -5,6 +5,12 @@ from auth_utils import (
     generate_otp, hash_pin, verify_pin, create_user_session, 
     validate_session_token, require_auth, get_current_user, logout_user_sessions
 )
+from assignment_utils import (
+    ASSIGNMENT_METHOD_AUTO_WARD_MATCH,
+    assign_mother_if_possible,
+    backfill_chw_from_ward_backlog,
+    emit_assignment_event,
+)
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
 import random
@@ -493,7 +499,7 @@ def verify_otp():
 
     if profile_obj is not None:
         db.session.add(profile_obj)
-        
+
         # Bootstrap default reminders if mother
         if user.role == 'mother':
             from models import Reminder
@@ -507,12 +513,31 @@ def verify_otp():
             for r in default_reminders:
                 db.session.add(r)
 
+    created_assignments = []
+    if profile_obj is not None and user.role in ('mother', 'chw'):
+        db.session.flush()
+        if user.role == 'mother':
+            assignment, changed = assign_mother_if_possible(
+                profile_obj.id,
+                assignment_method=ASSIGNMENT_METHOD_AUTO_WARD_MATCH,
+            )
+            if changed and assignment:
+                created_assignments.append(assignment)
+        elif user.role == 'chw':
+            created_assignments = backfill_chw_from_ward_backlog(
+                profile_obj.id,
+                assignment_method=ASSIGNMENT_METHOD_AUTO_WARD_MATCH,
+            )
+
     try:
         db.session.commit()
     except Exception as commit_error:
         db.session.rollback()
         print(f"[ERROR] verify_otp commit failed for user {user.id}: {commit_error}")
         return jsonify({'error': 'Failed to complete registration. Please try again.'}), 500
+
+    for assignment in created_assignments:
+        emit_assignment_event("assignment:created", assignment)
 
     # ── Step 3: Return the profile_id so frontend can cache it ──
     profile_id = None

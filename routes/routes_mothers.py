@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
-from models import db, User, Mother
+from models import db, User, Mother, CHW
+from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +11,31 @@ bp = Blueprint('mothers', __name__)
 def _split_full_name(full_name: str):
     parts = full_name.strip().split(' ', 1)
     return parts[0], parts[1] if len(parts) > 1 else ''
+
+
+def _serialize_assigned_chw(mother_id: int):
+    assignment = MotherCHWAssignment.query.filter_by(
+        mother_id=mother_id,
+        status='active',
+    ).first()
+    if not assignment:
+        return None
+
+    chw = CHW.query.get(assignment.chw_id)
+    if not chw:
+        return None
+
+    chw_user = User.query.get(chw.user_id)
+    return {
+        "id": chw.id,
+        "user_id": chw.user_id,
+        "name": chw.chw_name,
+        "phone_number": chw_user.phone_number if chw_user else None,
+        "location": chw.location,
+        "assignment_id": assignment.id,
+        "assigned_at": assignment.assigned_at.isoformat() if assignment.assigned_at else None,
+        "assignment_method": assignment.assignment_method,
+    }
 
 @bp.route('/mothers/me', methods=['GET'])
 @require_auth
@@ -29,6 +55,7 @@ def get_my_mother_profile():
         "due_date":   mother.due_date.strftime('%Y-%m-%d'),
         "location":   mother.location,
         "phone_number": user.phone_number,
+        "assigned_chw": _serialize_assigned_chw(mother.id),
     }), 200
 
 @bp.route('/mothers/complete-profile', methods=['POST'])
@@ -82,7 +109,8 @@ def get_mother_profile(mother_id):
         "dob": mother.dob.strftime('%Y-%m-%d'),
         "due_date": mother.due_date.strftime('%Y-%m-%d'),
         "location": mother.location,
-        "phone_number": user.phone_number
+        "phone_number": user.phone_number,
+        "assigned_chw": _serialize_assigned_chw(mother.id),
     }), 200
 
 @bp.route('/mothers/<int:mother_id>', methods=['PUT'])

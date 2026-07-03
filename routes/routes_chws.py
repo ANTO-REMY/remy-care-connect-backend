@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from models import db, User, CHW, Ward
+from assignment_utils import ASSIGNMENT_METHOD_AUTO_WARD_MATCH, backfill_chw_from_ward_backlog, emit_assignment_event, reassign_mothers_for_chw
 from auth_utils import require_auth, require_role, get_current_user, hash_pin
 from datetime import datetime, timezone
 from socket_manager import socketio
@@ -57,7 +58,14 @@ def register_chw():
             created_at=now
         )
         db.session.add(chw)
+        db.session.flush()
+        created_assignments = backfill_chw_from_ward_backlog(
+            chw.id,
+            assignment_method=ASSIGNMENT_METHOD_AUTO_WARD_MATCH,
+        )
         db.session.commit()
+        for assignment in created_assignments:
+            emit_assignment_event("assignment:created", assignment)
         logging.info(f"[CHW REGISTER] Success for phone: {data['phone']}")
         return jsonify({"message": "CHW registered successfully", "chw_id": chw.id}), 201
     except Exception as e:
@@ -186,9 +194,17 @@ def delete_chw(chw_id):
     if not chw:
         return jsonify({"error": "CHW not found."}), 404
     user = User.query.get(chw.user_id)
-    db.session.delete(chw)
-    db.session.delete(user)
-    db.session.commit()
+    try:
+        reassigned = reassign_mothers_for_chw(chw.id)
+        db.session.delete(chw)
+        if user:
+            db.session.delete(user)
+        db.session.commit()
+        for assignment in reassigned:
+            emit_assignment_event("assignment:created", assignment)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete CHW: {str(e)}"}), 500
     return jsonify({"message": "CHW profile deleted successfully."}), 200
 
 @bp.route('/chws', methods=['GET'])
