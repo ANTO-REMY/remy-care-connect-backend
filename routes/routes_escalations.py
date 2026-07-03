@@ -11,8 +11,21 @@ Escalation flow:
   4. Either party can fetch a single escalation (GET /escalations/<id>)
 """
 
+import logging
+
 from flask import Blueprint, jsonify, request
-from models import db, CHW, Nurse, Mother, DailyCheckin, Escalation, EscalationHiddenForUser
+from models import (
+    db,
+    CHW,
+    Nurse,
+    Mother,
+    DailyCheckin,
+    Escalation,
+    EscalationHiddenForUser,
+    FacilityAppointment,
+    FacilityEscalation,
+    HealthFacility,
+)
 from sqlalchemy.exc import IntegrityError
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
@@ -109,6 +122,70 @@ def _serialize(e):
         "created_at": e.created_at.isoformat() if e.created_at else None,
         "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
     }
+
+
+def _resolve_facility_for_mother(mother_id: int, explicit_facility_id=None):
+    if explicit_facility_id:
+        facility = HealthFacility.query.get(explicit_facility_id)
+        if facility:
+            return facility
+
+    latest_facility_appt = (
+        FacilityAppointment.query
+        .filter_by(mother_id=mother_id)
+        .order_by(FacilityAppointment.updated_at.desc(), FacilityAppointment.created_at.desc())
+        .first()
+    )
+    if latest_facility_appt and latest_facility_appt.facility_id:
+        return HealthFacility.query.get(latest_facility_appt.facility_id)
+
+    return None
+
+
+def _bridge_to_facility_escalation(escalation: Escalation, chw: CHW, mother: Mother, explicit_facility_id=None):
+    facility = _resolve_facility_for_mother(mother.id, explicit_facility_id)
+    if not facility:
+        return None
+
+    # Prevent duplicate active facility escalation for the same legacy escalation source check-in.
+    if escalation.checkin_id:
+        existing = FacilityEscalation.query.filter(
+            FacilityEscalation.facility_id == facility.id,
+            FacilityEscalation.checkin_id == escalation.checkin_id,
+            FacilityEscalation.status.in_(['received', 'in_progress'])
+        ).first()
+        if existing:
+            return existing
+
+    row = FacilityEscalation(
+        facility_id=facility.id,
+        mother_id=mother.id,
+        mother_user_id=mother.user_id,
+        mother_name=mother.mother_name,
+        chw_id=chw.id,
+        chw_user_id=chw.user_id,
+        checkin_id=escalation.checkin_id,
+        case_description=escalation.case_description,
+        issue_type=escalation.issue_type,
+        notes=escalation.notes,
+        priority=escalation.priority,
+        status='received',
+        created_by_user_id=chw.user_id,
+        updated_by_account_id=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    payload = row.to_dict()
+    socketio.emit('facility:escalation_created', payload, to=f'facility:{facility.id}')
+    if row.mother_user_id:
+        socketio.emit('facility:escalation_created', payload, to=f'user:{row.mother_user_id}')
+    if row.chw_user_id:
+        socketio.emit('facility:escalation_created', payload, to=f'user:{row.chw_user_id}')
+
+    return row
 
 
 def _get_role_profile(current_user):
@@ -248,6 +325,18 @@ def create_escalation():
                 role="mother",
             ),
         )
+
+        # Bridge legacy CHW->nurse escalation to facility workflow when a facility can be resolved.
+        try:
+            _bridge_to_facility_escalation(
+                escalation=escalation,
+                chw=chw,
+                mother=mother,
+                explicit_facility_id=data.get('facility_id'),
+            )
+        except Exception:
+            logging.exception("Failed to bridge escalation %s to facility escalation", escalation.id)
+
         # ──────────────────────────────────────────────────────────────────────
         return jsonify(payload), 201
     except IntegrityError:

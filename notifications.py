@@ -7,6 +7,7 @@ deliver notifications to all device tokens registered for a user.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -142,6 +143,19 @@ def init_firebase() -> None:
     """Call once at app startup after GOOGLE_APPLICATION_CREDENTIALS is set."""
     global _firebase_initialised, firebase_admin, messaging
     if _firebase_initialised:
+        return
+
+    if os.getenv("FCM_DISABLE", "false").lower() in {"1", "true", "yes"}:
+        log.info("[FCM] Firebase init skipped because FCM_DISABLE is enabled.")
+        return
+
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if not credentials_path:
+        log.info("[FCM] Firebase init skipped: GOOGLE_APPLICATION_CREDENTIALS is not set.")
+        return
+
+    if not os.path.exists(credentials_path):
+        log.warning("[FCM] Firebase init skipped: credentials file not found at %s", credentials_path)
         return
 
     try:

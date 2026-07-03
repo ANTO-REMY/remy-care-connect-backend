@@ -1,14 +1,25 @@
 import logging
 from datetime import datetime, timezone
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
 from app import db # Need active app context though
 from models import Reminder, User
 from notifications import send_push, create_user_notification
 from push_payloads import build_push_data
 
 log = logging.getLogger(__name__)
-scheduler = BackgroundScheduler()
+scheduler = None
+
+
+def _get_scheduler():
+    """Lazily create APScheduler to avoid slow startup-time imports."""
+    global scheduler
+    if scheduler is not None:
+        return scheduler
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    scheduler = BackgroundScheduler()
+    return scheduler
 
 def trigger_reminders(app):
     with app.app_context():
@@ -73,7 +84,13 @@ def trigger_reminders(app):
                         log.error(f"Failed to send reminder push for reminder {r.id}: {e}")
 
 def init_scheduler(app):
-    if scheduler.running:
+    try:
+        s = _get_scheduler()
+    except Exception as exc:
+        log.warning("APScheduler unavailable; skipping scheduler startup: %s", exc)
+        return
+
+    if s.running:
         log.info("APScheduler already running; skipping re-initialization.")
         return
 
@@ -81,7 +98,7 @@ def init_scheduler(app):
     # or you use a Lock / cache mechanism. For demo, just start it.
     
     # We pass `app` to trigger_reminders so it has an app context
-    scheduler.add_job(
+    s.add_job(
         func=trigger_reminders,
         trigger='cron',
         minute='*', # Runs every minute at the 00 second mark
@@ -90,5 +107,5 @@ def init_scheduler(app):
         replace_existing=True
     )
     
-    scheduler.start()
+    s.start()
     log.info("APScheduler initialized and started for background push notifications.")

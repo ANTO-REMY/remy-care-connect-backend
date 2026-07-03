@@ -8,7 +8,7 @@ from app import create_app, db
 from models import (
     User, UserSession, Verification, Mother, CHW, Nurse,
     AppointmentSchedule, MedicalRecordType, EducationalMaterial,
-    DietaryRecommendation, NextOfKin
+    DietaryRecommendation, NextOfKin, HealthFacility, FacilityIssue
 )
 import os
 
@@ -17,37 +17,38 @@ def init_database():
     app = create_app()
     
     with app.app_context():
-        print("🔧 Initializing RemyCareConnect database...")
-        
+        print("Initializing RemyCareConnect database...")
+
         # Drop all tables if they exist (for fresh start)
         if os.getenv('RESET_DB', 'false').lower() == 'true':
-            print("⚠️  Dropping existing tables...")
+            print("WARNING: Dropping existing tables...")
             db.drop_all()
-        
+
         # Create all tables
-        print("📋 Creating database tables...")
+        print("Creating database tables...")
         db.create_all()
-        
+
         # Verify tables were created
         inspector = db.inspect(db.engine)
         tables = inspector.get_table_names()
-        
+
         expected_tables = [
-            'users', 'user_sessions', 'verifications', 'mothers', 
+            'users', 'user_sessions', 'verifications', 'mothers',
             'chws', 'nurses', 'appointment_schedule', 'medical_record_type',
-            'educational_material', 'dietary_recommendation', 'next_of_kin'
+            'educational_material', 'dietary_recommendation', 'next_of_kin',
+            'health_facilities', 'facility_issues'
         ]
-        
+
         created_tables = [table for table in expected_tables if table in tables]
         missing_tables = [table for table in expected_tables if table not in tables]
-        
-        print(f"✅ Created {len(created_tables)} tables: {', '.join(created_tables)}")
-        
+
+        print(f"Created {len(created_tables)} tables: {', '.join(created_tables)}")
+
         if missing_tables:
-            print(f"⚠️  Missing tables: {', '.join(missing_tables)}")
-        
-        print("\n🎉 Database initialization complete!")
-        print("\n📋 Next steps:")
+            print(f"WARNING: Missing tables: {', '.join(missing_tables)}")
+
+        print("\nDatabase initialization complete!")
+        print("\nNext steps:")
         print("1. Start the services: docker-compose up -d")
         print("2. Test the health endpoint: curl http://localhost:5000/api/v1/health")
         print("3. Import Postman collection: postman/collection_hybrid_auth.json")

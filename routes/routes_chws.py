@@ -115,6 +115,8 @@ def get_current_chw_profile():
         "phone_number": user.phone_number,
         "license_number": chw.license_number,
         "location": chw.location,
+        "linked_facility_id": chw.linked_facility_id,
+        "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
         "created_at": chw.created_at.isoformat()
     }), 200
 
@@ -131,6 +133,8 @@ def get_chw(chw_id):
         "phone_number": user.phone_number,
         "license_number": chw.license_number,
         "location": chw.location,
+        "linked_facility_id": chw.linked_facility_id,
+        "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
         "created_at": chw.created_at.isoformat()
     }), 200
 
@@ -200,6 +204,8 @@ def list_chws():
             "phone_number": user.phone_number,
             "license_number": chw.license_number,
             "location": chw.location,
+            "linked_facility_id": chw.linked_facility_id,
+            "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
             "created_at": chw.created_at.isoformat()
         })
     return jsonify({"chws": result}), 200

@@ -16,9 +16,12 @@ Endpoints:
     DELETE /appointments/<id>       – hard delete (disabled)
 """
 
+import re
+import secrets
+
 from flask import Blueprint, jsonify, request
 from sqlalchemy import or_
-from models import db, AppointmentSchedule, AppointmentHiddenForUser, User, Mother, CHW, Nurse
+from models import db, AppointmentSchedule, AppointmentHiddenForUser, AppointmentTicketEvent, User, Mother, CHW, Nurse
 from models_standard import MotherCHWAssignment
 from auth_utils import require_auth, require_role, get_current_user
 from datetime import datetime, timezone, timedelta
@@ -28,6 +31,7 @@ from push_payloads import build_push_data
 
 bp = Blueprint('appointments', __name__)
 HIDDEN_RETENTION_DAYS = 15
+MIN_APPOINTMENT_LEAD_TIME = timedelta(hours=1)
 
 # ── Serialiser ────────────────────────────────────────────────────────────────
 
@@ -51,6 +55,12 @@ def _serialize(a):
         "escalated": a.escalated,
         "escalation_reason": a.escalation_reason,
         "notes": a.notes,
+        "ticket_code": a.ticket_code,
+        "ticket_status": a.ticket_status,
+        "validated_at": a.validated_at.isoformat() if a.validated_at else None,
+        "validated_by_user_id": a.validated_by_user_id,
+        "validation_method": a.validation_method,
+        "ticket_last_event_at": a.ticket_last_event_at.isoformat() if a.ticket_last_event_at else None,
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,
     }
@@ -62,6 +72,101 @@ def _get_user_or_error(user_id, label):
     if not user:
         return None, jsonify({"error": f"{label} with id {user_id} not found."}), 404
     return user, None, None
+
+def _normalize_phone_number(phone):
+    phone = (phone or '').strip()
+    cleaned = re.sub(r'[^0-9]', '', phone)
+
+    if cleaned.startswith('07') and len(cleaned) == 10:
+        return '+254' + cleaned[1:]
+    if cleaned.startswith('254') and len(cleaned) == 12:
+        return '+' + cleaned
+    if phone.startswith('+254') and len(cleaned) == 12:
+        return '+254' + cleaned[3:]
+
+    return phone
+
+def _resolve_mother_user(data):
+    mother_phone_number = data.get('mother_phone_number')
+    mother_id = data.get('mother_id')
+
+    if mother_phone_number:
+        normalized_phone = _normalize_phone_number(mother_phone_number)
+        mother_user = User.query.filter_by(phone_number=normalized_phone, role='mother').first()
+        if not mother_user:
+            return None, jsonify({"error": "Mother with the provided phone number was not found."}), 404
+        mother_profile = Mother.query.filter_by(user_id=mother_user.id).first()
+        if not mother_profile:
+            return None, jsonify({"error": "Mother profile for the provided phone number was not found."}), 404
+        return mother_user, None, None
+
+    if mother_id:
+        mother_user = User.query.get(mother_id)
+        if not mother_user:
+            return None, jsonify({"error": f"User (mother) {mother_id} not found."}), 404
+        return mother_user, None, None
+
+    return None, jsonify({"error": "mother_id or mother_phone_number is required"}), 400
+
+def _normalize_to_utc(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+def _validate_minimum_schedule_time(scheduled_time):
+    scheduled_time_utc = _normalize_to_utc(scheduled_time)
+    now = datetime.now(timezone.utc)
+    minimum_time = now + MIN_APPOINTMENT_LEAD_TIME
+    if scheduled_time_utc < minimum_time:
+        return jsonify({
+            "error": "Appointments must be scheduled at least 1 hour from the current time."
+        }), 400
+    return None
+
+def _generate_ticket_code(prefix, exists_callback):
+    while True:
+        code = f"{prefix}-{secrets.token_hex(3).upper()}"
+        if not exists_callback(code):
+            return code
+
+def _create_appointment_ticket_code():
+    return _generate_ticket_code(
+        'RCC-APT',
+        lambda code: AppointmentSchedule.query.filter_by(ticket_code=code).first() is not None
+    )
+
+def _apply_standard_ticket_state_for_status(appointment, status, actor_user_id=None, validation_method=None):
+    if status == 'canceled':
+        appointment.ticket_status = 'canceled'
+        appointment.validated_at = None
+        appointment.validated_by_user_id = None
+        appointment.validation_method = None
+    elif status == 'completed':
+        appointment.ticket_status = 'used'
+        appointment.validated_at = datetime.now(timezone.utc)
+        appointment.validated_by_user_id = actor_user_id
+        appointment.validation_method = validation_method or 'manual'
+    else:
+        appointment.ticket_status = 'active'
+        appointment.validated_at = None
+        appointment.validated_by_user_id = None
+        appointment.validation_method = None
+
+def _log_ticket_event(appointment, event_type, actor_user_id=None, actor_role=None, metadata=None, notes=None):
+    event = AppointmentTicketEvent(
+        appointment_source='standard',
+        appointment_id=appointment.id,
+        ticket_code=appointment.ticket_code,
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        metadata_json=metadata or {},
+        notes=notes,
+    )
+    appointment.ticket_last_event_at = datetime.now(timezone.utc)
+    db.session.add(event)
 
 def _emit_appointment_event(event_name, payload, mother_id, health_worker_id):
     """Helper to emit WebSocket events and Push Notifications to participants."""
@@ -204,7 +309,8 @@ def create_appointment():
     """
     Create an appointment.
     Body:
-      mother_id (int), health_worker_id (int), scheduled_time (ISO8601) – required
+      health_worker_id (int), scheduled_time (ISO8601) – required
+      mother_id (int) or mother_phone_number (str) – required
       status ('scheduled'|'completed'|'cancelled'|'rescheduled') – optional, default 'scheduled'
       recurrence_rule (str, optional), recurrence_end (ISO8601, optional),
       notes (str, optional)
@@ -215,10 +321,12 @@ def create_appointment():
 
     data = request.get_json() or {}
 
-    required = ['mother_id', 'health_worker_id', 'scheduled_time']
+    required = ['health_worker_id', 'scheduled_time']
     missing = [f for f in required if not data.get(f)]
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+    if not data.get('mother_id') and not data.get('mother_phone_number'):
+        return jsonify({"error": "Missing required fields: mother_id or mother_phone_number"}), 400
 
     status = data.get('status', 'scheduled')
     if status == 'cancelled':
@@ -226,10 +334,10 @@ def create_appointment():
     if status not in ('scheduled', 'completed', 'canceled'):
         return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
 
-    # Validate mother user exists
-    mother_user = User.query.get(data['mother_id'])
-    if not mother_user:
-        return jsonify({"error": f"User (mother) {data['mother_id']} not found."}), 404
+    mother_user, mother_err, status_code = _resolve_mother_user(data)
+    if mother_err:
+        return mother_err, status_code
+    resolved_mother_id = mother_user.id
 
     # If current user is a mother, auto-resolve to their assigned CHW
     final_health_worker_id = data['health_worker_id']
@@ -257,6 +365,9 @@ def create_appointment():
         scheduled_time = datetime.fromisoformat(data['scheduled_time'].replace('Z', '+00:00'))
     except (ValueError, AttributeError):
         return jsonify({"error": "scheduled_time must be a valid ISO 8601 datetime."}), 400
+    minimum_time_error = _validate_minimum_schedule_time(scheduled_time)
+    if minimum_time_error:
+        return minimum_time_error
 
     recurrence_end = None
     if data.get('recurrence_end'):
@@ -268,7 +379,7 @@ def create_appointment():
     now = datetime.now(timezone.utc)
     try:
         appt = AppointmentSchedule()
-        appt.mother_id = data['mother_id']
+        appt.mother_id = resolved_mother_id
         appt.health_worker_id = final_health_worker_id  # Use resolved health worker ID
         appt.scheduled_time = scheduled_time
         appt.recurrence_rule = data.get('recurrence_rule')
@@ -278,10 +389,25 @@ def create_appointment():
         appt.escalated = data.get('escalated', False)
         appt.escalation_reason = data.get('escalation_reason')
         appt.notes = data.get('notes')
+        appt.ticket_code = _create_appointment_ticket_code()
+        appt.ticket_last_event_at = now
         appt.created_by_user_id = current_user.id  # Track who created this
         appt.created_at = now
         appt.updated_at = now
+        _apply_standard_ticket_state_for_status(
+            appt,
+            status,
+            actor_user_id=current_user.id if status == 'completed' else None,
+        )
         db.session.add(appt)
+        db.session.flush()
+        _log_ticket_event(
+            appt,
+            'generated',
+            actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            metadata={'scheduled_time': appt.scheduled_time.isoformat() if appt.scheduled_time else None}
+        )
         db.session.commit()
 
         payload = {"message": "Appointment created.", **_serialize(appt)}
@@ -381,11 +507,16 @@ def update_appointment(appt_id):
 
     data = request.get_json() or {}
 
+    old_scheduled_time = a.scheduled_time.isoformat() if a.scheduled_time else None
     if 'scheduled_time' in data:
         try:
-            a.scheduled_time = datetime.fromisoformat(data['scheduled_time'].replace('Z', '+00:00'))
+            parsed_scheduled_time = datetime.fromisoformat(data['scheduled_time'].replace('Z', '+00:00'))
         except (ValueError, AttributeError):
             return jsonify({"error": "scheduled_time must be a valid ISO 8601 datetime."}), 400
+        minimum_time_error = _validate_minimum_schedule_time(parsed_scheduled_time)
+        if minimum_time_error:
+            return minimum_time_error
+        a.scheduled_time = parsed_scheduled_time
 
     for field in ('notes', 'recurrence_rule', 'escalation_reason', 'appointment_type'):
         if field in data:
@@ -400,6 +531,18 @@ def update_appointment(appt_id):
             return jsonify({"error": "recurrence_end must be a valid ISO 8601 datetime."}), 400
 
     a.updated_at = datetime.now(timezone.utc)
+    if 'scheduled_time' in data and a.scheduled_time and a.scheduled_time.isoformat() != old_scheduled_time:
+        _apply_standard_ticket_state_for_status(a, 'scheduled')
+        _log_ticket_event(
+            a,
+            'rescheduled',
+            actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            metadata={
+                'previous_scheduled_time': old_scheduled_time,
+                'new_scheduled_time': a.scheduled_time.isoformat(),
+            }
+        )
     db.session.commit()
 
     payload = {"message": "Appointment updated.", **_serialize(a)}
@@ -431,8 +574,23 @@ def update_appointment_status(appt_id):
     if new_status not in ('scheduled', 'completed', 'canceled'):
         return jsonify({"error": "status must be scheduled | completed | canceled"}), 400
 
+    previous_status = a.status
     a.status = new_status
+    _apply_standard_ticket_state_for_status(
+        a,
+        new_status,
+        actor_user_id=current_user.id if new_status == 'completed' else None,
+        validation_method=a.validation_method,
+    )
     a.updated_at = datetime.now(timezone.utc)
+    if previous_status != new_status:
+        _log_ticket_event(
+            a,
+            'canceled' if new_status == 'canceled' else 'rescheduled' if new_status == 'scheduled' else 'validated' if new_status == 'completed' else 'generated',
+            actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            metadata={'previous_status': previous_status, 'new_status': new_status}
+        )
     db.session.commit()
 
     payload = {"message": f"Appointment status updated to '{new_status}'.", **_serialize(a)}

@@ -13,6 +13,7 @@ import sys
 import time
 import requests
 from app import create_app
+from socket_manager import socketio
 
 def check_docker_services():
     """Check if Docker services are running"""
@@ -66,11 +67,18 @@ def start_flask_server():
     print("🌐 Backend: Local Flask development server")
     print("🔗 Health check: http://localhost:5001/api/v1/health")
     print("📝 Postman collection configured for port 5001")
-    print("\n💡 Quick start alternative: python -c \"from app import create_app; create_app().run(host='0.0.0.0', port=5001, debug=True)\"")
+    print("\n💡 Quick start alternative: python wsgi.py")
     print("\n" + "="*50)
     
     app = create_app()
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=5001,
+        debug=True,
+        use_reloader=False,
+        allow_unsafe_werkzeug=True,
+    )
 
 if __name__ == '__main__':
     print("🎯 RemyCareConnect Development Server Startup")

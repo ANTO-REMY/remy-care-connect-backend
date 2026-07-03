@@ -1,0 +1,24 @@
+{
+  "status": "generated_with_warnings",
+  "outputs": {
+    "wards_geojson": "C:\\Users\\X 1 YOGA\\Desktop\\remycareconnect\\remy-care-connect-backend\\data\\boundaries\\nairobi_wards.geojson",
+    "subcounties_geojson": "C:\\Users\\X 1 YOGA\\Desktop\\remycareconnect\\remy-care-connect-backend\\data\\boundaries\\nairobi_subcounties.geojson"
+  },
+  "counts": {
+    "ward_features_generated": 84,
+    "ward_features_expected": 85,
+    "subcounty_features_generated": 17,
+    "subcounty_features_expected": 17
+  },
+  "warnings": {
+    "upstream_unmatched_ward_pairs": [],
+    "missing_expected_wards": [
+      {
+        "subcounty_name": "Mathare",
+        "ward_name": "Ngei",
+        "ward_code": "1448"
+      }
+    ],
+    "missing_expected_subcounties": []
+  }
+}

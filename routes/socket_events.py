@@ -34,6 +34,7 @@ All event names the server can push to clients
 """
 
 import logging
+from sqlalchemy import inspect
 
 from flask import request
 from flask_socketio import join_room, leave_room, emit, disconnect
@@ -43,9 +44,22 @@ from jwt.exceptions import DecodeError, ExpiredSignatureError
 from socket_manager import socketio
 from models import (
     db, AppointmentSchedule, AppointmentHiddenForUser, Escalation, CHW, Nurse, Mother, User,
+    FacilityAccount, FacilityAppointment, FacilityEscalation,
 )
 from models_standard import MotherCHWAssignment
 from datetime import datetime, timezone, timedelta
+
+
+_facility_sync_warning_emitted = False
+
+
+def _facility_sync_tables_available():
+    required = {"facility_accounts", "facility_appointments", "facility_escalations"}
+    try:
+        existing = set(inspect(db.engine).get_table_names())
+    except Exception:
+        return False
+    return required.issubset(existing)
 
 
 # ── connect ───────────────────────────────────────────────────────────────────
@@ -70,15 +84,36 @@ def on_connect(auth=None):
     try:
         decoded = decode_token(token)
         identity = decoded.get("sub", {})
+        personal_room = None
 
         # identity may be a dict (our custom identity) or just an int/str
         if isinstance(identity, dict):
             user_id = identity.get("id") or identity.get("user_id")
             role    = identity.get("role", "")
+            personal_room = f"user:{user_id}" if user_id else None
+        elif isinstance(identity, str) and identity.startswith("facility:"):
+            account_id_raw = identity.split(":", 1)[1]
+            try:
+                account_id = int(account_id_raw)
+            except ValueError:
+                emit("auth_error", {"message": "Unauthorized"})
+                disconnect()
+                return
+            account = FacilityAccount.query.get(account_id)
+            if not account or not account.is_active:
+                emit("auth_error", {"message": "Unauthorized"})
+                disconnect()
+                return
+            user_id = account.id
+            role = "facility_staff"
+            # Keep facility accounts in a distinct personal room namespace.
+            personal_room = f"facility_account:{account.id}"
+            join_room(f"facility:{account.facility_id}")
         else:
             # Fallback: store raw identity; role rooms won't be set
             user_id = identity
             role    = ""
+            personal_room = f"user:{user_id}" if user_id else None
 
         if not user_id:
             emit("auth_error", {"message": "Unauthorized"})
@@ -86,7 +121,8 @@ def on_connect(auth=None):
             return
 
         # Personal room
-        join_room(f"user:{user_id}")
+        if personal_room:
+            join_room(personal_room)
         # Role room
         if role:
             join_room(f"role:{role}")
@@ -122,6 +158,8 @@ def on_join_rooms(data):
         identity = decoded.get("sub", {})
         if isinstance(identity, dict):
             role = identity.get("role", "")
+        elif isinstance(identity, str) and identity.startswith("facility:"):
+            role = "facility_staff"
         else:
             role = ""
 
@@ -205,6 +243,11 @@ def on_request_sync(data):
     if isinstance(identity, dict):
         user_id = identity.get("id") or identity.get("user_id")
         role = identity.get("role", "")
+    elif isinstance(identity, str) and identity.startswith("facility:"):
+        account_id = identity.split(":", 1)[1]
+        account = FacilityAccount.query.get(account_id)
+        user_id = account.id if account else None
+        role = "facility_staff"
     else:
         user_id = identity
         role = ""
@@ -254,6 +297,29 @@ def on_request_sync(data):
                 # Escalations where nurse_id = profile_id
                 escs = Escalation.query.filter_by(nurse_id=profile_id).all()
                 payload["escalations"] = [_escalation_serialize(e) for e in escs]
+
+        elif role == "facility_staff":
+            account = FacilityAccount.query.get(user_id)
+            if account and account.facility_id:
+                payload["facility_id"] = account.facility_id
+                if _facility_sync_tables_available():
+                    fappts = FacilityAppointment.query.filter_by(
+                        facility_id=account.facility_id
+                    ).order_by(FacilityAppointment.scheduled_time.asc()).all()
+                    fescs = FacilityEscalation.query.filter_by(
+                        facility_id=account.facility_id
+                    ).order_by(FacilityEscalation.created_at.desc()).all()
+                    payload["facility_appointments"] = [a.to_dict() for a in fappts]
+                    payload["facility_escalations"] = [e.to_dict() for e in fescs]
+                else:
+                    global _facility_sync_warning_emitted
+                    payload["facility_appointments"] = []
+                    payload["facility_escalations"] = []
+                    if not _facility_sync_warning_emitted:
+                        logging.warning(
+                            "[WS] Facility sync tables missing; returning empty facility payload until migrations are applied."
+                        )
+                        _facility_sync_warning_emitted = True
 
     except Exception:
         logging.exception("[WS] request_sync error for user %s", user_id)  # Partial payload acceptable

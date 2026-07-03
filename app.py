@@ -61,6 +61,8 @@ def create_app():
     from routes.routes_resources import bp as resources_bp
     from routes.routes_nutrition import bp as nutrition_bp
     from routes.routes_reminders import bp as reminders_bp
+    from routes.routes_health_facilities import bp as health_facilities_bp
+    from routes.routes_facility_staff_auth import bp as facility_staff_auth_bp
     app.register_blueprint(health_bp, url_prefix='/api/v1')
     app.register_blueprint(auth_bp, url_prefix='/api/v1')
     app.register_blueprint(mothers_bp, url_prefix='/api/v1')
@@ -77,6 +79,8 @@ def create_app():
     app.register_blueprint(locations_bp, url_prefix='/api/v1')
     app.register_blueprint(resources_bp, url_prefix='/api/v1')
     app.register_blueprint(nutrition_bp, url_prefix='/api/v1')
+    app.register_blueprint(health_facilities_bp, url_prefix='/api/v1')
+    app.register_blueprint(facility_staff_auth_bp, url_prefix='/api/v1')
     from routes.routes_checkin import bp as checkin_bp
     app.register_blueprint(checkin_bp, url_prefix='/api/v1')
     from routes.routes_device_tokens import bp as device_tokens_bp
@@ -100,8 +104,11 @@ def create_app():
     run_main = os.environ.get('WERKZEUG_RUN_MAIN')
     should_start_scheduler = (not app.config['DEBUG']) or (run_main == 'true') or (run_main is None)
     if should_start_scheduler:
-        from scheduler import init_scheduler
-        init_scheduler(app)
+        try:
+            from scheduler import init_scheduler
+            init_scheduler(app)
+        except Exception as exc:
+            app.logger.warning("Scheduler startup skipped: %s", exc)
 
     with app.app_context():
         try:

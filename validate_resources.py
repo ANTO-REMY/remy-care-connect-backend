@@ -32,7 +32,6 @@ def main():
     
     files_to_check = [
         os.path.join(backend_dir, 'routes', 'routes_resources.py'),
-        os.path.join(backend_dir, 'test_resources_api.py'),
         os.path.join(backend_dir, 'app.py')
     ]
     
