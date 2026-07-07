@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from models import db, User, Verification, Mother, CHW, Nurse, Ward, FacilityAccount, FacilityStaff, OTPToken, HealthFacility
+from models import db, User, Verification, Mother, CHW, Nurse, Ward, FacilityAccount, FacilityStaff, OTPToken, HealthFacility, CHWFacilitySubmission
 from auth_utils import (
     generate_otp, hash_pin, verify_pin, create_user_session, 
     validate_session_token, require_auth, get_current_user, logout_user_sessions
@@ -13,6 +13,7 @@ from assignment_utils import (
 )
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_, func
 import random
 import re
 import json
@@ -200,6 +201,10 @@ def _parse_ward_or_error(ward_id_raw):
     return ward, None
 
 
+def _normalize_facility_name(name: str | None):
+    return re.sub(r'\s+', ' ', (name or '').strip()).lower()
+
+
 def _facility_matches_ward_scope(facility: HealthFacility, ward: Ward):
     if not facility or not ward:
         return False
@@ -225,7 +230,7 @@ def _facility_matches_ward_scope(facility: HealthFacility, ward: Ward):
 
 
 def _resolve_linked_facility_or_error(linked_facility_id_raw, ward: Ward):
-    if linked_facility_id_raw is None:
+    if linked_facility_id_raw in (None, ''):
         return None, None
 
     try:
@@ -238,9 +243,108 @@ def _resolve_linked_facility_or_error(linked_facility_id_raw, ward: Ward):
         return None, (jsonify({'error': 'Selected linked facility was not found'}), 404)
 
     if not _facility_matches_ward_scope(linked_facility, ward):
-        return None, (jsonify({'error': 'Selected linked facility is outside the selected ward scope'}), 400)
+        return None, (jsonify({'error': 'Selected linked facility must be within the selected sub-county'}), 400)
 
     return linked_facility, None
+
+
+def _find_existing_subcounty_facility_by_name(normalized_name: str, ward: Ward):
+    if not normalized_name or not ward:
+        return None
+
+    sub_county_name = (ward.sub_county.name if ward.sub_county else '') or ''
+    query = (
+        HealthFacility.query
+        .filter(HealthFacility.name.isnot(None))
+        .filter(func.length(func.trim(HealthFacility.name)) > 0)
+        .filter(
+            or_(
+                HealthFacility.inferred_sub_county_id == ward.sub_county_id,
+                HealthFacility.subcounty_name.ilike(sub_county_name) if sub_county_name else False,
+                HealthFacility.city.ilike(f'%{sub_county_name}%') if sub_county_name else False,
+            )
+        )
+    )
+
+    for facility in query.order_by(HealthFacility.verified.desc(), HealthFacility.name).limit(200).all():
+        if _normalize_facility_name(facility.name) == normalized_name:
+            return facility
+
+    return None
+
+
+def _resolve_chw_facility_selection_or_error(data, ward: Ward):
+    linked_facility_id = data.get('linked_facility_id')
+    new_facility_name = (data.get('new_facility_name') or '').strip()
+    new_facility_ward_id = data.get('new_facility_ward_id')
+
+    if linked_facility_id not in (None, '') and new_facility_name:
+        return None, None, (
+            jsonify({'error': 'Provide either linked_facility_id or new_facility_name, not both'}),
+            400,
+        )
+
+    linked_facility, linked_facility_error = _resolve_linked_facility_or_error(linked_facility_id, ward)
+    if linked_facility_error:
+        return None, None, linked_facility_error
+
+    if not new_facility_name:
+        return linked_facility, None, None
+
+    submission_ward = ward
+    if new_facility_ward_id not in (None, ''):
+        submission_ward, submission_ward_error = _parse_ward_or_error(new_facility_ward_id)
+        if submission_ward_error:
+            return None, None, submission_ward_error
+        if submission_ward.sub_county_id != ward.sub_county_id:
+            return None, None, (
+                jsonify({'error': 'New facility ward must be within the selected sub-county'}),
+                400,
+            )
+
+    normalized_name = _normalize_facility_name(new_facility_name)
+    if not normalized_name:
+        return None, None, (jsonify({'error': 'new_facility_name cannot be blank'}), 400)
+
+    existing_match = _find_existing_subcounty_facility_by_name(normalized_name, ward)
+    if existing_match:
+        return None, None, (
+            jsonify({
+                'error': 'Facility already exists in the selected sub-county. Please select the existing facility instead.',
+                'existing_facility': {
+                    'id': existing_match.id,
+                    'name': existing_match.name,
+                },
+            }),
+            409,
+        )
+
+    submission_payload = {
+        'facility_name': new_facility_name,
+        'normalized_facility_name': normalized_name,
+        'ward_id': submission_ward.id,
+        'sub_county_id': submission_ward.sub_county_id,
+    }
+    return linked_facility, submission_payload, None
+
+
+def _serialize_chw_facility_link(chw: CHW):
+    summary = chw.facility_link_summary()
+    status = summary['facility_link_status']
+    message = None
+    can_escalate = status == 'approved'
+    if status == 'awaiting_approval':
+        message = 'Awaiting linked facility approval.'
+    elif status == 'not_linked':
+        message = 'No linked facility on file.'
+    elif status == 'rejected':
+        message = 'Linked facility submission was rejected. Please select an existing facility or submit a new one.'
+
+    return {
+        **summary,
+        'facility_link_message': message,
+        'can_perform_facility_escalations': can_escalate,
+    }
 
 @bp.route('/auth/register', methods=['POST'])
 def register():
@@ -268,7 +372,6 @@ def register():
     email = data.get('email', '').strip() or None   # optional
     license_number = data.get('license_number', '').strip()
     ward_id = data.get('ward_id')
-    linked_facility_id = data.get('linked_facility_id')
     ward = None
 
     # CHW and Nurse require license_number and ward_id
@@ -282,10 +385,10 @@ def register():
         if ward_error:
             return ward_error
 
-    if role == 'chw' and linked_facility_id is not None:
-        linked_facility, linked_facility_error = _resolve_linked_facility_or_error(linked_facility_id, ward)
-        if linked_facility_error:
-            return linked_facility_error
+    if role == 'chw':
+        _linked_facility, _submission_payload, chw_facility_error = _resolve_chw_facility_selection_or_error(data, ward)
+        if chw_facility_error:
+            return chw_facility_error
     
     # Validate phone number format
     if not validate_phone_number(phone_number):
@@ -417,7 +520,6 @@ def verify_otp():
     if user.role == 'chw' and not user.chw:
         license_number = data.get('license_number', '').strip()
         ward_id        = data.get('ward_id')
-        linked_facility_id = data.get('linked_facility_id')
         if not license_number:
             return jsonify({'error': 'license_number is required to complete CHW registration'}), 400
         if not ward_id:
@@ -426,9 +528,9 @@ def verify_otp():
         if ward_error:
             return ward_error
 
-        linked_facility, linked_facility_error = _resolve_linked_facility_or_error(linked_facility_id, ward)
-        if linked_facility_error:
-            return linked_facility_error
+        linked_facility, submission_payload, chw_facility_error = _resolve_chw_facility_selection_or_error(data, ward)
+        if chw_facility_error:
+            return chw_facility_error
 
         profile_obj = CHW(
             user_id=user.id,
@@ -524,6 +626,20 @@ def verify_otp():
             if changed and assignment:
                 created_assignments.append(assignment)
         elif user.role == 'chw':
+            if submission_payload:
+                submission = CHWFacilitySubmission(
+                    submitted_by_user_id=user.id,
+                    chw_id=profile_obj.id,
+                    facility_name=submission_payload['facility_name'],
+                    normalized_facility_name=submission_payload['normalized_facility_name'],
+                    ward_id=submission_payload['ward_id'],
+                    sub_county_id=submission_payload['sub_county_id'],
+                    status='pending',
+                )
+                db.session.add(submission)
+                db.session.flush()
+                profile_obj.pending_facility_submission_id = submission.id
+
             created_assignments = backfill_chw_from_ward_backlog(
                 profile_obj.id,
                 assignment_method=ASSIGNMENT_METHOD_AUTO_WARD_MATCH,
@@ -552,7 +668,8 @@ def verify_otp():
         'message': 'Phone number verified successfully. You can now login.',
         'user_id': user.id,
         'role': user.role,
-        'profile_id': profile_id
+        'profile_id': profile_id,
+        'chw_facility_link': _serialize_chw_facility_link(user.chw) if user.role == 'chw' and user.chw else None,
     }), 200
 
 @bp.route('/auth/login', methods=['POST'])
@@ -823,7 +940,8 @@ def login():
             'last_name': user.last_name,
             'name': user.name,
             'role': user.role,
-            'profile_id': profile_id
+            'profile_id': profile_id,
+            'chw_facility_link': _serialize_chw_facility_link(user.chw) if user.role == 'chw' and user.chw else None,
         }
     }), 200
 
@@ -915,7 +1033,8 @@ def get_profile():
         'profile_id': profile_id,
         'is_verified': user.is_verified,
         'created_at': user.created_at.isoformat(),
-        'auth_method': getattr(request, 'auth_method', 'jwt')
+        'auth_method': getattr(request, 'auth_method', 'jwt'),
+        'chw_facility_link': _serialize_chw_facility_link(user.chw) if user.role == 'chw' and user.chw else None,
     }
     
     # Add role-specific data
@@ -930,7 +1049,8 @@ def get_profile():
         profile_data['chw_profile'] = {
             'chw_name': user.chw.chw_name,
             'license_number': user.chw.license_number,
-            'location': user.chw.location
+            'location': user.chw.location,
+            **_serialize_chw_facility_link(user.chw),
         }
     elif user.role == 'nurse' and user.nurse:
         profile_data['nurse_profile'] = {

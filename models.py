@@ -88,9 +88,45 @@ class CHW(db.Model):
     ward_id       = db.Column(db.Integer, db.ForeignKey('wards.id'), nullable=False)
     sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id'), nullable=False)
     linked_facility_id = db.Column(db.Integer, db.ForeignKey('health_facilities.id', ondelete='SET NULL'))
+    pending_facility_submission_id = db.Column(db.Integer, db.ForeignKey('chw_facility_submissions.id', ondelete='SET NULL'))
     created_at    = db.Column(db.DateTime, nullable=False)
 
     linked_facility = db.relationship('HealthFacility', foreign_keys=[linked_facility_id])
+    pending_facility_submission = db.relationship(
+        'CHWFacilitySubmission',
+        foreign_keys=[pending_facility_submission_id],
+        post_update=True,
+    )
+
+    @property
+    def facility_link_status(self):
+        if self.linked_facility_id:
+            return 'approved'
+        pending = self.pending_facility_submission
+        if not pending:
+            return 'not_linked'
+        if pending.status == 'pending':
+            return 'awaiting_approval'
+        if pending.status == 'rejected':
+            return 'rejected'
+        if pending.status == 'approved' and pending.matched_health_facility_id:
+            return 'approved'
+        return 'not_linked'
+
+    def facility_link_summary(self):
+        pending = self.pending_facility_submission
+        return {
+            'facility_link_status': self.facility_link_status,
+            'linked_facility_id': self.linked_facility_id,
+            'linked_facility_name': self.linked_facility.name if self.linked_facility else None,
+            'pending_facility_submission_id': pending.id if pending else None,
+            'pending_facility_submission_status': pending.status if pending else None,
+            'pending_facility_name': pending.facility_name if pending else None,
+            'pending_facility_ward_id': pending.ward_id if pending else None,
+            'pending_facility_ward_name': pending.ward.name if pending and pending.ward else None,
+            'pending_facility_sub_county_id': pending.sub_county_id if pending else None,
+            'pending_facility_sub_county_name': pending.sub_county.name if pending and pending.sub_county else None,
+        }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -626,6 +662,12 @@ class HealthFacility(db.Model):
     issues = db.relationship('FacilityIssue', back_populates='facility', lazy=True, cascade='all, delete-orphan')
     staff_memberships = db.relationship('FacilityStaff', backref='facility_obj', lazy=True, cascade='all, delete-orphan')
     invitations = db.relationship('FacilityInvitation', backref='facility_obj', lazy=True, cascade='all, delete-orphan')
+    chw_submission_matches = db.relationship(
+        'CHWFacilitySubmission',
+        foreign_keys='CHWFacilitySubmission.matched_health_facility_id',
+        back_populates='matched_health_facility',
+        lazy=True,
+    )
     
     def to_dict(self):
         """Serialize facility to dictionary"""
@@ -673,6 +715,70 @@ class HealthFacility(db.Model):
             'hours_text': self.hours_text,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class CHWFacilitySubmission(db.Model):
+    __tablename__ = 'chw_facility_submissions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    submitted_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    chw_id = db.Column(db.Integer, db.ForeignKey('chws.id', ondelete='SET NULL'))
+    facility_name = db.Column(db.String(255), nullable=False)
+    normalized_facility_name = db.Column(db.String(255), nullable=False)
+    ward_id = db.Column(db.Integer, db.ForeignKey('wards.id', ondelete='RESTRICT'), nullable=False)
+    sub_county_id = db.Column(db.Integer, db.ForeignKey('sub_counties.id', ondelete='RESTRICT'), nullable=False)
+    status = db.Column(db.String(32), nullable=False, default='pending')
+    matched_health_facility_id = db.Column(db.Integer, db.ForeignKey('health_facilities.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')",
+            name='chk_chw_facility_submission_status',
+        ),
+    )
+
+    submitter = db.relationship(
+        'User',
+        foreign_keys=[submitted_by_user_id],
+        backref=db.backref('chw_facility_submissions', lazy=True, cascade='all, delete-orphan'),
+    )
+    chw = db.relationship(
+        'CHW',
+        foreign_keys=[chw_id],
+        backref=db.backref('facility_submissions', lazy=True),
+    )
+    ward = db.relationship('Ward', foreign_keys=[ward_id])
+    sub_county = db.relationship('SubCounty', foreign_keys=[sub_county_id])
+    matched_health_facility = db.relationship(
+        'HealthFacility',
+        foreign_keys=[matched_health_facility_id],
+        back_populates='chw_submission_matches',
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'submitted_by_user_id': self.submitted_by_user_id,
+            'chw_id': self.chw_id,
+            'facility_name': self.facility_name,
+            'normalized_facility_name': self.normalized_facility_name,
+            'ward_id': self.ward_id,
+            'ward_name': self.ward.name if self.ward else None,
+            'sub_county_id': self.sub_county_id,
+            'sub_county_name': self.sub_county.name if self.sub_county else None,
+            'status': self.status,
+            'matched_health_facility_id': self.matched_health_facility_id,
+            'matched_health_facility_name': self.matched_health_facility.name if self.matched_health_facility else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

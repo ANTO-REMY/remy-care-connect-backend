@@ -87,6 +87,13 @@ def _create_facility_appointment_ticket_code():
         lambda code: FacilityAppointment.query.filter_by(ticket_code=code).first() is not None
     )
 
+
+def _parse_iso_datetime(value):
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
 def _log_facility_ticket_event(appointment, event_type, actor_user_id=None, actor_role=None, metadata=None, notes=None):
     event = AppointmentTicketEvent(
         appointment_source='facility',
@@ -100,6 +107,41 @@ def _log_facility_ticket_event(appointment, event_type, actor_user_id=None, acto
     )
     appointment.ticket_last_event_at = datetime.now(timezone.utc)
     db.session.add(event)
+
+
+def _apply_facility_ticket_state_for_status(appointment, status):
+    if status == 'canceled':
+        appointment.ticket_status = 'canceled'
+        appointment.validated_at = None
+        appointment.validated_by_account_id = None
+        appointment.validation_method = None
+    elif status == 'completed':
+        appointment.ticket_status = 'used'
+    else:
+        appointment.ticket_status = 'active'
+        appointment.validated_at = None
+        appointment.validated_by_account_id = None
+        appointment.validation_method = None
+
+
+def _serialize_mother_facility_appointment(row: FacilityAppointment):
+    item = row.to_dict()
+    facility = row.facility
+    item['facility_name'] = facility.name if facility else None
+    item['facility_address'] = facility.address if facility else None
+    item['facility_city'] = facility.city if facility else None
+    item['facility_phone'] = facility.phone if facility else None
+    item['facility_email'] = facility.email if facility else None
+    item['facility_hours_text'] = facility.hours_text if facility else None
+    return item
+
+
+def _emit_facility_appointment_to_facility_room(event_name: str, appointment: FacilityAppointment):
+    socketio.emit(
+        event_name,
+        _serialize_mother_facility_appointment(appointment),
+        to=f'facility:{appointment.facility_id}',
+    )
 
 
 def _apply_relevance_profile(query, profile: str):
@@ -463,8 +505,7 @@ def create_mother_facility_appointment(facility_id):
     )
     db.session.commit()
 
-    payload = appointment.to_dict()
-    payload['facility_name'] = facility.name
+    payload = _serialize_mother_facility_appointment(appointment)
 
     # Facility room receives live booking updates.
     socketio.emit('facility:appointment_created', payload, to=f'facility:{facility_id}')
@@ -488,11 +529,157 @@ def list_my_facility_appointments():
     appointments = []
 
     for row in rows:
-        item = row.to_dict()
-        item['facility_name'] = row.facility.name if row.facility else None
-        appointments.append(item)
+        appointments.append(_serialize_mother_facility_appointment(row))
 
     return jsonify({'count': len(appointments), 'appointments': appointments}), 200
+
+
+@bp.route('/health-facilities/appointments/<int:appointment_id>', methods=['PATCH'])
+@require_auth
+def update_my_facility_appointment(appointment_id):
+    """Allow a mother to edit or reschedule her own facility booking."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if user.role != 'mother':
+        return jsonify({'error': 'Only mothers can update this resource'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.mother_id != user.id:
+        return jsonify({'error': 'Facility appointment not found'}), 404
+
+    if appointment.status == 'completed':
+        return jsonify({'error': 'Completed facility appointments cannot be edited'}), 400
+    if appointment.status == 'canceled':
+        return jsonify({'error': 'Canceled facility appointments cannot be edited. Restore the booking first.'}), 400
+
+    data = request.get_json() or {}
+    previous_scheduled_time = appointment.scheduled_time.isoformat() if appointment.scheduled_time else None
+    scheduled_time_changed = False
+
+    if 'scheduled_time' in data:
+        parsed = _parse_iso_datetime(data.get('scheduled_time'))
+        if not parsed:
+            return jsonify({'error': 'valid scheduled_time is required'}), 400
+        minimum_time_error = _validate_minimum_schedule_time(parsed)
+        if minimum_time_error:
+            return minimum_time_error
+        appointment.scheduled_time = parsed
+        scheduled_time_changed = appointment.scheduled_time.isoformat() != previous_scheduled_time
+
+    if 'appointment_type' in data:
+        appointment.appointment_type = (data.get('appointment_type') or '').strip() or None
+
+    if 'notes' in data:
+        appointment.notes = (data.get('notes') or '').strip() or None
+
+    appointment.updated_at = datetime.now(timezone.utc)
+
+    if scheduled_time_changed:
+        _apply_facility_ticket_state_for_status(appointment, 'scheduled')
+        _log_facility_ticket_event(
+            appointment,
+            'rescheduled',
+            actor_user_id=user.id,
+            actor_role=user.role,
+            metadata={
+                'previous_scheduled_time': previous_scheduled_time,
+                'new_scheduled_time': appointment.scheduled_time.isoformat(),
+            }
+        )
+
+    db.session.commit()
+
+    _emit_facility_appointment_to_facility_room('facility:appointment_updated', appointment)
+
+    return jsonify({
+        'message': 'Facility appointment updated',
+        'appointment': _serialize_mother_facility_appointment(appointment),
+    }), 200
+
+
+@bp.route('/health-facilities/appointments/<int:appointment_id>', methods=['DELETE'])
+@require_auth
+def cancel_my_facility_appointment(appointment_id):
+    """Allow a mother to cancel her own facility booking."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if user.role != 'mother':
+        return jsonify({'error': 'Only mothers can update this resource'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.mother_id != user.id:
+        return jsonify({'error': 'Facility appointment not found'}), 404
+
+    if appointment.status == 'completed':
+        return jsonify({'error': 'Completed facility appointments cannot be canceled'}), 400
+    if appointment.status == 'canceled':
+        return jsonify({'error': 'Facility appointment is already canceled'}), 400
+
+    previous_status = appointment.status
+    appointment.status = 'canceled'
+    appointment.updated_at = datetime.now(timezone.utc)
+    _apply_facility_ticket_state_for_status(appointment, 'canceled')
+    _log_facility_ticket_event(
+        appointment,
+        'canceled',
+        actor_user_id=user.id,
+        actor_role=user.role,
+        metadata={'previous_status': previous_status, 'new_status': 'canceled'},
+    )
+    db.session.commit()
+
+    _emit_facility_appointment_to_facility_room('facility:appointment_updated', appointment)
+
+    return jsonify({
+        'message': 'Facility appointment canceled',
+        'appointment': _serialize_mother_facility_appointment(appointment),
+    }), 200
+
+
+@bp.route('/health-facilities/appointments/<int:appointment_id>/restore', methods=['POST'])
+@require_auth
+def restore_my_facility_appointment(appointment_id):
+    """Allow a mother to restore a canceled facility booking."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if user.role != 'mother':
+        return jsonify({'error': 'Only mothers can update this resource'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.mother_id != user.id:
+        return jsonify({'error': 'Facility appointment not found'}), 404
+
+    if appointment.status != 'canceled':
+        return jsonify({'error': 'Only canceled facility appointments can be restored'}), 400
+
+    minimum_time_error = _validate_minimum_schedule_time(appointment.scheduled_time)
+    if minimum_time_error:
+        return minimum_time_error
+
+    appointment.status = 'scheduled'
+    appointment.updated_at = datetime.now(timezone.utc)
+    _apply_facility_ticket_state_for_status(appointment, 'scheduled')
+    _log_facility_ticket_event(
+        appointment,
+        'rescheduled',
+        actor_user_id=user.id,
+        actor_role=user.role,
+        metadata={'previous_status': 'canceled', 'new_status': 'scheduled'},
+    )
+    db.session.commit()
+
+    _emit_facility_appointment_to_facility_room('facility:appointment_updated', appointment)
+
+    return jsonify({
+        'message': 'Facility appointment restored',
+        'appointment': _serialize_mother_facility_appointment(appointment),
+    }), 200
 
 
 # ============================================================
@@ -743,26 +930,38 @@ def get_facilities_by_ward(ward_id):
         query = query.filter(HealthFacility.name.isnot(None)).filter(func.length(func.trim(HealthFacility.name)) > 0)
         query = _apply_relevance_profile(query, relevance_profile)
         
-        # First try inferred administrative mapping (ward exact, then sub-county fallback).
-        facilities = query.filter(
+        def _ordered_facilities(filtered_query):
+            return (
+                filtered_query.order_by(
+                    HealthFacility.verified.desc(),
+                    func.coalesce(HealthFacility.inference_confidence, 0).desc(),
+                    HealthFacility.name
+                ).limit(limit).all()
+            )
+
+        # Start with ward matches, then fill the remainder from the same sub-county so
+        # CHWs can link to facilities outside their ward but still within the selected sub-county.
+        ward_facilities = _ordered_facilities(query.filter(
             HealthFacility.inferred_ward_id == ward.id
-        ).order_by(
-            HealthFacility.verified.desc(),
-            func.coalesce(HealthFacility.inference_confidence, 0).desc(),
-            HealthFacility.name
-        ).limit(limit).all()
+        ))
 
         matched_by = 'inferred_ward'
+        facilities = list(ward_facilities)
+        seen_ids = {facility.id for facility in facilities}
 
-        if not facilities:
-            facilities = query.filter(
+        if len(facilities) < limit:
+            subcounty_facilities = _ordered_facilities(query.filter(
                 HealthFacility.inferred_sub_county_id == ward.sub_county_id
-            ).order_by(
-                HealthFacility.verified.desc(),
-                func.coalesce(HealthFacility.inference_confidence, 0).desc(),
-                HealthFacility.name
-            ).limit(limit).all()
-            matched_by = 'inferred_subcounty'
+            ))
+            for facility in subcounty_facilities:
+                if facility.id in seen_ids:
+                    continue
+                facilities.append(facility)
+                seen_ids.add(facility.id)
+                if len(facilities) >= limit:
+                    break
+            if facilities and len(facilities) > len(ward_facilities):
+                matched_by = 'inferred_subcounty'
 
         if not facilities:
             matched_by = 'text_fallback'

@@ -232,6 +232,7 @@ def _can_view_escalation(current_user, escalation):
 
 @bp.route('/escalations', methods=['POST'])
 @require_auth
+@require_role('chw')
 def create_escalation():
     """
     CHW submits an escalation.
@@ -250,6 +251,17 @@ def create_escalation():
     chw = CHW.query.get(data['chw_id'])
     if not chw:
         return jsonify({"error": f"CHW {data['chw_id']} not found."}), 404
+
+    current_user = get_current_user()
+    if not current_user or chw.user_id != current_user.id:
+        return jsonify({"error": "Forbidden."}), 403
+
+    if chw.facility_link_status != 'approved' or not chw.linked_facility_id:
+        return jsonify({
+            "error": "Awaiting linked facility approval.",
+            "facility_link_status": chw.facility_link_status,
+            "can_perform_facility_escalations": False,
+        }), 403
 
     nurse = Nurse.query.get(data['nurse_id'])
     if not nurse:
@@ -332,7 +344,7 @@ def create_escalation():
                 escalation=escalation,
                 chw=chw,
                 mother=mother,
-                explicit_facility_id=data.get('facility_id'),
+                explicit_facility_id=chw.linked_facility_id,
             )
         except Exception:
             logging.exception("Failed to bridge escalation %s to facility escalation", escalation.id)

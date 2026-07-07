@@ -12,6 +12,25 @@ def _split_full_name(full_name: str):
     parts = full_name.strip().split(' ', 1)
     return parts[0], parts[1] if len(parts) > 1 else ''
 
+
+def _serialize_facility_link(chw: CHW):
+    summary = chw.facility_link_summary()
+    status = summary['facility_link_status']
+    message = None
+    can_escalate = status == 'approved'
+    if status == 'awaiting_approval':
+        message = 'Awaiting linked facility approval.'
+    elif status == 'not_linked':
+        message = 'No linked facility on file.'
+    elif status == 'rejected':
+        message = 'Linked facility submission was rejected. Please select an existing facility or submit a new one.'
+
+    return {
+        **summary,
+        'facility_link_message': message,
+        'can_perform_facility_escalations': can_escalate,
+    }
+
 @bp.route('/chws/register', methods=['POST'])
 def register_chw():
     data = request.get_json()
@@ -123,8 +142,7 @@ def get_current_chw_profile():
         "phone_number": user.phone_number,
         "license_number": chw.license_number,
         "location": chw.location,
-        "linked_facility_id": chw.linked_facility_id,
-        "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
+        **_serialize_facility_link(chw),
         "created_at": chw.created_at.isoformat()
     }), 200
 
@@ -141,8 +159,7 @@ def get_chw(chw_id):
         "phone_number": user.phone_number,
         "license_number": chw.license_number,
         "location": chw.location,
-        "linked_facility_id": chw.linked_facility_id,
-        "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
+        **_serialize_facility_link(chw),
         "created_at": chw.created_at.isoformat()
     }), 200
 
@@ -220,8 +237,7 @@ def list_chws():
             "phone_number": user.phone_number,
             "license_number": chw.license_number,
             "location": chw.location,
-            "linked_facility_id": chw.linked_facility_id,
-            "linked_facility_name": chw.linked_facility.name if chw.linked_facility else None,
+            **_serialize_facility_link(chw),
             "created_at": chw.created_at.isoformat()
         })
     return jsonify({"chws": result}), 200
