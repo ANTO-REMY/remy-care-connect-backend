@@ -144,6 +144,57 @@ def _emit_facility_appointment_to_facility_room(event_name: str, appointment: Fa
     )
 
 
+def _notify_facility_about_mother_response(appointment: FacilityAppointment):
+    if not appointment.facility:
+        return
+
+    targets = []
+    seen_account_ids = set()
+
+    for account_id in [appointment.created_by_account_id, appointment.assigned_staff_account_id]:
+        if not account_id or account_id in seen_account_ids:
+            continue
+        account = FacilityAccount.query.get(account_id)
+        if not account:
+            continue
+        seen_account_ids.add(account_id)
+        targets.append(account)
+
+    for account in targets:
+        linked_user = _resolve_user_for_facility_account(account)
+        if not linked_user:
+            continue
+
+        response_label = (appointment.mother_response_status or 'commented').replace('_', ' ')
+        create_user_notification(
+            user_id=linked_user.id,
+            event_type='facility:appointment_updated',
+            title='Mother Replied To Appointment',
+            message=f"{appointment.mother_name} {response_label} the appointment at {appointment.facility.name}.",
+            url='/dashboard/facility/appointments',
+            entity_type='facility_appointment',
+            entity_id=appointment.id,
+        )
+        send_push(
+            linked_user.id,
+            'Mother Replied To Appointment',
+            f"{appointment.mother_name} {response_label} the appointment.",
+            build_push_data(
+                event='facility:appointment_updated',
+                url='/dashboard/facility/appointments',
+                entity_type='facility_appointment',
+                entity_id=appointment.id,
+                role='facility_staff',
+                extra={
+                    'facility_id': appointment.facility_id,
+                    'facility_name': appointment.facility.name,
+                    'mother_name': appointment.mother_name,
+                    'response_status': appointment.mother_response_status,
+                },
+            ),
+        )
+
+
 def _apply_relevance_profile(query, profile: str):
     if profile == 'all':
         return query
@@ -537,7 +588,7 @@ def list_my_facility_appointments():
 @bp.route('/health-facilities/appointments/<int:appointment_id>', methods=['PATCH'])
 @require_auth
 def update_my_facility_appointment(appointment_id):
-    """Allow a mother to edit or reschedule her own facility booking."""
+    """Allow a mother to confirm, decline, or comment on a facility appointment."""
     user = get_current_user()
     if not user:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -550,51 +601,48 @@ def update_my_facility_appointment(appointment_id):
         return jsonify({'error': 'Facility appointment not found'}), 404
 
     if appointment.status == 'completed':
-        return jsonify({'error': 'Completed facility appointments cannot be edited'}), 400
+        return jsonify({'error': 'Completed facility appointments cannot be responded to'}), 400
     if appointment.status == 'canceled':
-        return jsonify({'error': 'Canceled facility appointments cannot be edited. Restore the booking first.'}), 400
+        return jsonify({'error': 'Canceled facility appointments cannot be responded to. Restore the booking first.'}), 400
 
     data = request.get_json() or {}
-    previous_scheduled_time = appointment.scheduled_time.isoformat() if appointment.scheduled_time else None
-    scheduled_time_changed = False
+    requested_status = (data.get('response_status') or '').strip().lower() or None
+    response_note = (data.get('response_note') or '').strip() or None
 
-    if 'scheduled_time' in data:
-        parsed = _parse_iso_datetime(data.get('scheduled_time'))
-        if not parsed:
-            return jsonify({'error': 'valid scheduled_time is required'}), 400
-        minimum_time_error = _validate_minimum_schedule_time(parsed)
-        if minimum_time_error:
-            return minimum_time_error
-        appointment.scheduled_time = parsed
-        scheduled_time_changed = appointment.scheduled_time.isoformat() != previous_scheduled_time
+    if requested_status and requested_status not in {'confirmed', 'declined'}:
+        return jsonify({'error': 'response_status must be confirmed or declined'}), 400
+    if not requested_status and response_note is None:
+        return jsonify({'error': 'response_status or response_note is required'}), 400
 
-    if 'appointment_type' in data:
-        appointment.appointment_type = (data.get('appointment_type') or '').strip() or None
+    if any(key in data for key in ('scheduled_time', 'appointment_type', 'notes')):
+        return jsonify({'error': 'Mothers cannot edit facility appointment details after they are sent'}), 403
 
-    if 'notes' in data:
-        appointment.notes = (data.get('notes') or '').strip() or None
+    previous_status = appointment.status
+    appointment.mother_response_status = requested_status or appointment.mother_response_status
+    appointment.mother_response_note = response_note
+    appointment.mother_responded_at = datetime.now(timezone.utc)
 
-    appointment.updated_at = datetime.now(timezone.utc)
-
-    if scheduled_time_changed:
-        _apply_facility_ticket_state_for_status(appointment, 'scheduled')
+    if requested_status == 'declined':
+        appointment.status = 'canceled'
+        _apply_facility_ticket_state_for_status(appointment, 'canceled')
         _log_facility_ticket_event(
             appointment,
-            'rescheduled',
+            'canceled',
             actor_user_id=user.id,
             actor_role=user.role,
-            metadata={
-                'previous_scheduled_time': previous_scheduled_time,
-                'new_scheduled_time': appointment.scheduled_time.isoformat(),
-            }
+            metadata={'previous_status': previous_status, 'new_status': 'canceled', 'response_status': 'declined'},
+            notes=response_note,
         )
+
+    appointment.updated_at = datetime.now(timezone.utc)
 
     db.session.commit()
 
     _emit_facility_appointment_to_facility_room('facility:appointment_updated', appointment)
+    _notify_facility_about_mother_response(appointment)
 
     return jsonify({
-        'message': 'Facility appointment updated',
+        'message': 'Facility appointment response saved',
         'appointment': _serialize_mother_facility_appointment(appointment),
     }), 200
 

@@ -917,6 +917,9 @@ class FacilityAppointment(db.Model):
     assigned_staff_account_id = db.Column(db.Integer, db.ForeignKey('facility_accounts.id', ondelete='SET NULL'))
     created_by_account_id = db.Column(db.Integer, db.ForeignKey('facility_accounts.id', ondelete='SET NULL'))
     notes = db.Column(db.Text)
+    mother_response_status = db.Column(db.String(16))
+    mother_response_note = db.Column(db.Text)
+    mother_responded_at = db.Column(db.DateTime(timezone=True))
     ticket_code = db.Column(db.String(32), unique=True, nullable=False)
     ticket_status = db.Column(db.String(16), nullable=False, default='active')
     validated_at = db.Column(db.DateTime(timezone=True))
@@ -956,6 +959,9 @@ class FacilityAppointment(db.Model):
             'assigned_staff_name': self.assigned_staff.name if self.assigned_staff else None,
             'created_by_account_id': self.created_by_account_id,
             'notes': self.notes,
+            'mother_response_status': self.mother_response_status,
+            'mother_response_note': self.mother_response_note,
+            'mother_responded_at': self.mother_responded_at.isoformat() if self.mother_responded_at else None,
             'ticket_code': self.ticket_code,
             'ticket_status': self.ticket_status,
             'validated_at': self.validated_at.isoformat() if self.validated_at else None,

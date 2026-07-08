@@ -2907,6 +2907,167 @@ def update_facility_appointment_status(facility_id, appointment_id):
     }), 200
 
 
+@bp.route('/facilities/<int:facility_id>/appointments/<int:appointment_id>', methods=['PATCH'])
+@require_facility_auth
+def update_facility_appointment(facility_id, appointment_id):
+    current_account = request.current_facility_account
+
+    membership = _active_membership(current_account.id, facility_id)
+    is_admin = bool(_admin_facility_for_account(current_account, facility_id))
+    if not membership and not is_admin:
+        return jsonify({'error': 'Only active facility members can update appointments'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.facility_id != facility_id:
+        return jsonify({'error': 'Appointment not found'}), 404
+
+    if appointment.created_by_account_id != current_account.id:
+        return jsonify({'error': 'Only the facility account that created this appointment can edit it'}), 403
+
+    if appointment.status == 'completed':
+        return jsonify({'error': 'Completed appointments cannot be edited'}), 400
+
+    data = request.get_json() or {}
+    previous_scheduled_time = appointment.scheduled_time.isoformat() if appointment.scheduled_time else None
+    scheduled_time_changed = False
+
+    if 'scheduled_time' in data:
+      parsed = _parse_iso_datetime(data.get('scheduled_time'))
+      if not parsed:
+          return jsonify({'error': 'valid scheduled_time is required'}), 400
+      minimum_time_error = _validate_minimum_schedule_time(parsed)
+      if minimum_time_error:
+          return minimum_time_error
+      appointment.scheduled_time = parsed
+      scheduled_time_changed = appointment.scheduled_time.isoformat() != previous_scheduled_time
+
+    if 'appointment_type' in data:
+        appointment.appointment_type = (data.get('appointment_type') or '').strip() or None
+
+    if 'notes' in data:
+        appointment.notes = (data.get('notes') or '').strip() or None
+
+    appointment.mother_response_status = None
+    appointment.mother_response_note = None
+    appointment.mother_responded_at = None
+    appointment.updated_at = datetime.now(timezone.utc)
+    if scheduled_time_changed:
+        _apply_facility_ticket_state_for_status(appointment, 'scheduled')
+        _log_facility_ticket_event(
+            appointment,
+            'rescheduled',
+            actor_account_id=current_account.id,
+            actor_role=current_account.role,
+            metadata={
+                'previous_scheduled_time': previous_scheduled_time,
+                'new_scheduled_time': appointment.scheduled_time.isoformat(),
+            }
+        )
+
+    db.session.commit()
+
+    _emit_facility_appointment('facility:appointment_updated', facility_id, appointment)
+    _notify_mother_facility_appointment(appointment, 'facility:appointment_updated')
+    _notify_assigned_facility_staff_for_appointment(appointment)
+
+    return jsonify({
+        'message': 'Appointment updated',
+        'appointment': appointment.to_dict(),
+    }), 200
+
+
+@bp.route('/facilities/<int:facility_id>/appointments/<int:appointment_id>', methods=['DELETE'])
+@require_facility_auth
+def cancel_facility_appointment(facility_id, appointment_id):
+    current_account = request.current_facility_account
+
+    membership = _active_membership(current_account.id, facility_id)
+    is_admin = bool(_admin_facility_for_account(current_account, facility_id))
+    if not membership and not is_admin:
+        return jsonify({'error': 'Only active facility members can update appointments'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.facility_id != facility_id:
+        return jsonify({'error': 'Appointment not found'}), 404
+
+    if appointment.created_by_account_id != current_account.id:
+        return jsonify({'error': 'Only the facility account that created this appointment can cancel it'}), 403
+    if appointment.status == 'completed':
+        return jsonify({'error': 'Completed appointments cannot be canceled'}), 400
+    if appointment.status == 'canceled':
+        return jsonify({'error': 'Appointment is already canceled'}), 400
+
+    previous_status = appointment.status
+    appointment.status = 'canceled'
+    appointment.updated_at = datetime.now(timezone.utc)
+    _apply_facility_ticket_state_for_status(appointment, 'canceled')
+    _log_facility_ticket_event(
+        appointment,
+        'canceled',
+        actor_account_id=current_account.id,
+        actor_role=current_account.role,
+        metadata={'previous_status': previous_status, 'new_status': 'canceled'}
+    )
+    db.session.commit()
+
+    _emit_facility_appointment('facility:appointment_updated', facility_id, appointment)
+    _notify_mother_facility_appointment(appointment, 'facility:appointment_updated')
+    _notify_assigned_facility_staff_for_appointment(appointment)
+
+    return jsonify({
+        'message': 'Appointment canceled',
+        'appointment': appointment.to_dict(),
+    }), 200
+
+
+@bp.route('/facilities/<int:facility_id>/appointments/<int:appointment_id>/restore', methods=['POST'])
+@require_facility_auth
+def restore_facility_appointment(facility_id, appointment_id):
+    current_account = request.current_facility_account
+
+    membership = _active_membership(current_account.id, facility_id)
+    is_admin = bool(_admin_facility_for_account(current_account, facility_id))
+    if not membership and not is_admin:
+        return jsonify({'error': 'Only active facility members can update appointments'}), 403
+
+    appointment = FacilityAppointment.query.get(appointment_id)
+    if not appointment or appointment.facility_id != facility_id:
+        return jsonify({'error': 'Appointment not found'}), 404
+
+    if appointment.created_by_account_id != current_account.id:
+        return jsonify({'error': 'Only the facility account that created this appointment can restore it'}), 403
+    if appointment.status != 'canceled':
+        return jsonify({'error': 'Only canceled appointments can be restored'}), 400
+
+    minimum_time_error = _validate_minimum_schedule_time(appointment.scheduled_time)
+    if minimum_time_error:
+        return minimum_time_error
+
+    appointment.status = 'scheduled'
+    appointment.mother_response_status = None
+    appointment.mother_response_note = None
+    appointment.mother_responded_at = None
+    appointment.updated_at = datetime.now(timezone.utc)
+    _apply_facility_ticket_state_for_status(appointment, 'scheduled')
+    _log_facility_ticket_event(
+        appointment,
+        'rescheduled',
+        actor_account_id=current_account.id,
+        actor_role=current_account.role,
+        metadata={'previous_status': 'canceled', 'new_status': 'scheduled'}
+    )
+    db.session.commit()
+
+    _emit_facility_appointment('facility:appointment_updated', facility_id, appointment)
+    _notify_mother_facility_appointment(appointment, 'facility:appointment_updated')
+    _notify_assigned_facility_staff_for_appointment(appointment)
+
+    return jsonify({
+        'message': 'Appointment restored',
+        'appointment': appointment.to_dict(),
+    }), 200
+
+
 # ============================================================
 # FACILITY ESCALATIONS (STAFF-MEMBER PARITY FLOW)
 # ============================================================
