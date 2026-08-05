@@ -31,6 +31,7 @@ from models import (
     UserNotification,
     Ward,
 )
+from models_standard import MotherCHWAssignment
 from notifications import create_user_notification, send_push
 from push_payloads import build_push_data
 from socket_manager import socketio
@@ -592,6 +593,33 @@ def _serialize_user_notification(row: UserNotification):
         'is_read': bool(row.is_read),
         'read_at': row.read_at.isoformat() if row.read_at else None,
         'created_at': row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _serialize_facility_linked_chw(chw: CHW, assigned_mothers: int, active_cases: int, last_active=None):
+    ward_name = None
+    sub_county_name = None
+    if chw.ward_id:
+        ward = Ward.query.get(chw.ward_id)
+        ward_name = ward.name if ward else None
+    if chw.sub_county_id:
+        sub_county = SubCounty.query.get(chw.sub_county_id)
+        sub_county_name = sub_county.name if sub_county else None
+
+    return {
+        'id': chw.id,
+        'user_id': chw.user_id,
+        'name': chw.chw_name,
+        'phone_number': chw.user.phone_number if chw.user else None,
+        'ward': ward_name,
+        'sub_county': sub_county_name,
+        'location': chw.location,
+        'assigned_mothers': assigned_mothers,
+        'active_cases': active_cases,
+        'facility_link_status': chw.facility_link_status,
+        'linked_facility_id': chw.linked_facility_id,
+        'last_active': last_active.isoformat() if last_active else None,
+        'created_at': chw.created_at.isoformat() if chw.created_at else None,
     }
 
 
@@ -2664,6 +2692,94 @@ def update_facility_staff(staff_id):
     return jsonify({
         'message': 'Staff record updated',
         'staff': staff_row.to_dict(),
+    }), 200
+
+
+@bp.route('/facilities/<int:facility_id>/chws', methods=['GET'])
+@require_facility_auth
+def list_facility_linked_chws(facility_id):
+    current_account = request.current_facility_account
+
+    membership = _active_membership(current_account.id, facility_id)
+    if not membership and not _admin_facility_for_account(current_account, facility_id):
+        return jsonify({'error': 'Access denied for this facility'}), 403
+
+    rows = CHW.query.filter_by(linked_facility_id=facility_id).order_by(CHW.chw_name.asc()).all()
+    chw_ids = [row.id for row in rows]
+
+    assigned_counts = {}
+    active_case_counts = {}
+    last_active_map = {}
+
+    if chw_ids:
+        assigned_counts = {
+            chw_id: count
+            for chw_id, count in (
+                db.session.query(
+                    MotherCHWAssignment.chw_id,
+                    func.count(MotherCHWAssignment.id),
+                )
+                .filter(
+                    MotherCHWAssignment.status == 'active',
+                    MotherCHWAssignment.chw_id.in_(chw_ids),
+                )
+                .group_by(MotherCHWAssignment.chw_id)
+                .all()
+            )
+        }
+
+        active_case_counts = {
+            chw_id: count
+            for chw_id, count in (
+                db.session.query(
+                    FacilityEscalation.chw_id,
+                    func.count(FacilityEscalation.id),
+                )
+                .filter(
+                    FacilityEscalation.facility_id == facility_id,
+                    FacilityEscalation.chw_id.in_(chw_ids),
+                    FacilityEscalation.status.in_(['received', 'in_progress']),
+                )
+                .group_by(FacilityEscalation.chw_id)
+                .all()
+            )
+        }
+
+        last_active_map = {
+            chw_id: last_active
+            for chw_id, last_active in (
+                db.session.query(
+                    FacilityEscalation.chw_id,
+                    func.max(func.coalesce(FacilityEscalation.updated_at, FacilityEscalation.created_at)),
+                )
+                .filter(
+                    FacilityEscalation.facility_id == facility_id,
+                    FacilityEscalation.chw_id.in_(chw_ids),
+                )
+                .group_by(FacilityEscalation.chw_id)
+                .all()
+            )
+        }
+
+    chws = [
+        _serialize_facility_linked_chw(
+            row,
+            assigned_counts.get(row.id, 0),
+            active_case_counts.get(row.id, 0),
+            last_active_map.get(row.id) or row.created_at,
+        )
+        for row in rows
+    ]
+
+    return jsonify({
+        'facility_id': facility_id,
+        'count': len(chws),
+        'summary': {
+            'linked_chws': len(chws),
+            'chws_with_active_cases': sum(1 for item in chws if item['active_cases'] > 0),
+            'assigned_mothers': sum(item['assigned_mothers'] for item in chws),
+        },
+        'chws': chws,
     }), 200
 
 

@@ -188,6 +188,32 @@ def _resolve_login_subject(user, facility_account, pin, role_hint=None):
     return None, user_pin_ok, facility_pin_ok
 
 
+def _resolve_pin_reset_subject(phone_number, role_hint=None):
+    hint = (role_hint or '').strip().lower()
+
+    user = _find_user_by_contact(phone_number=phone_number)
+    facility_account = _find_facility_account_by_contact(phone_number=phone_number)
+
+    if hint in {'facility', 'facility_staff', 'facility_account', 'admin', 'doctor', 'nurse'}:
+        if facility_account:
+            return 'facility', facility_account
+        if user:
+            return 'user', user
+
+    if hint in {'mother', 'chw', 'user'}:
+        if user:
+            return 'user', user
+        if facility_account:
+            return 'facility', facility_account
+
+    if user:
+        return 'user', user
+    if facility_account:
+        return 'facility', facility_account
+
+    return None, None
+
+
 def _parse_ward_or_error(ward_id_raw):
     try:
         ward_id = int(ward_id_raw)
@@ -1117,4 +1143,172 @@ def resend_otp():
         'message': 'New OTP sent successfully',
         'expires_in': '10 minutes',
         'otp_delivery_status': 'sent' if success else 'failed'
+    }), 200
+
+
+@bp.route('/auth/request-pin-reset-otp', methods=['POST'])
+def request_pin_reset_otp():
+    """Issue an OTP for phone-based PIN recovery."""
+    data = request.get_json() or {}
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
+    role_hint = data.get('role')
+
+    if not phone_number:
+        return jsonify({'error': 'Phone number is required'}), 400
+
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format'}), 400
+
+    subject_type, subject = _resolve_pin_reset_subject(phone_number, role_hint)
+    if not subject_type or not subject:
+        return jsonify({'error': 'No account found with that phone number'}), 404
+
+    if subject_type == 'user' and not subject.is_verified:
+        return jsonify({'error': 'Please verify this account before resetting the PIN'}), 403
+
+    if subject_type == 'facility' and not subject.is_active:
+        return jsonify({'error': 'This facility account is inactive'}), 403
+
+    now = datetime.now(timezone.utc)
+    purpose = 'pin_reset_facility' if subject_type == 'facility' else 'pin_reset_user'
+
+    stale_tokens = OTPToken.query.filter_by(
+        phone_number=phone_number,
+        purpose=purpose,
+        is_used=False,
+    ).all()
+
+    for token in stale_tokens:
+        token.is_used = True
+        token.used_at = now
+
+    otp_code = generate_otp()
+    reset_token = OTPToken(
+        phone_number=phone_number,
+        email=getattr(subject, 'email', None),
+        otp_code=otp_code,
+        purpose=purpose,
+        facility_id=subject.facility_id if subject_type == 'facility' else None,
+        attempts=0,
+        max_attempts=5,
+        is_used=False,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+    )
+    db.session.add(reset_token)
+    db.session.commit()
+
+    success, delivery_msg, delivery_method = send_otp(phone_number, otp_code)
+    service = get_otp_service()
+    service.log_otp_delivery(
+        phone_number=phone_number,
+        success=success,
+        method=delivery_method,
+        error=None if success else delivery_msg,
+    )
+
+    if not success:
+        log.warning("[OTP] Failed to deliver PIN reset OTP to %s: %s", phone_number, delivery_msg)
+
+    return jsonify({
+        'message': 'PIN reset OTP sent successfully.',
+        'expires_in': '10 minutes',
+        'otp_delivery_status': 'sent' if success else 'pending_retry',
+    }), 200
+
+
+@bp.route('/auth/reset-pin', methods=['POST'])
+def reset_pin():
+    """Verify PIN reset OTP and save a new PIN."""
+    data = request.get_json() or {}
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
+    otp_code = (data.get('otp_code') or '').strip()
+    new_pin = (data.get('new_pin') or '').strip()
+    role_hint = data.get('role')
+
+    if not phone_number or not otp_code or not new_pin:
+        return jsonify({'error': 'Phone number, OTP code, and new PIN are required'}), 400
+
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format'}), 400
+
+    if len(new_pin) < 4 or len(new_pin) > 8 or not new_pin.isdigit():
+        return jsonify({'error': 'PIN must contain 4 to 8 digits'}), 400
+
+    subject_type, subject = _resolve_pin_reset_subject(phone_number, role_hint)
+    if not subject_type or not subject:
+        return jsonify({'error': 'No account found with that phone number'}), 404
+
+    purpose = 'pin_reset_facility' if subject_type == 'facility' else 'pin_reset_user'
+    reset_token = OTPToken.query.filter_by(
+        phone_number=phone_number,
+        purpose=purpose,
+        is_used=False,
+    ).order_by(OTPToken.created_at.desc()).first()
+
+    if not reset_token:
+        return jsonify({'error': 'No active PIN reset request found. Please request a new code.'}), 400
+
+    if not reset_token.is_valid():
+        reset_token.attempts += 1
+        db.session.commit()
+        return jsonify({'error': 'PIN reset code expired or max attempts reached. Request a new code.'}), 400
+
+    if reset_token.otp_code != otp_code:
+        reset_token.attempts += 1
+        db.session.commit()
+        return jsonify({'error': 'Invalid OTP. Please try again.'}), 401
+
+    now = datetime.now(timezone.utc)
+    reset_token.is_used = True
+    reset_token.used_at = now
+    subject.pin_hash = hash_pin(new_pin)
+    subject.updated_at = now
+    db.session.commit()
+
+    return jsonify({
+        'message': 'PIN reset successful. You can now sign in with your new PIN.',
+    }), 200
+
+
+@bp.route('/auth/verify-pin-reset-otp', methods=['POST'])
+def verify_pin_reset_otp():
+    """Validate the OTP for a pending PIN reset without consuming it."""
+    data = request.get_json() or {}
+    phone_number = normalize_phone_number(data.get('phone_number', ''))
+    otp_code = (data.get('otp_code') or '').strip()
+    role_hint = data.get('role')
+
+    if not phone_number or not otp_code:
+        return jsonify({'error': 'Phone number and OTP code are required'}), 400
+
+    if not validate_phone_number(phone_number):
+        return jsonify({'error': 'Please enter phone number in 07xxxxxxxx format'}), 400
+
+    subject_type, subject = _resolve_pin_reset_subject(phone_number, role_hint)
+    if not subject_type or not subject:
+        return jsonify({'error': 'No account found with that phone number'}), 404
+
+    purpose = 'pin_reset_facility' if subject_type == 'facility' else 'pin_reset_user'
+    reset_token = OTPToken.query.filter_by(
+        phone_number=phone_number,
+        purpose=purpose,
+        is_used=False,
+    ).order_by(OTPToken.created_at.desc()).first()
+
+    if not reset_token:
+        return jsonify({'error': 'No active PIN reset request found. Please request a new code.'}), 400
+
+    if not reset_token.is_valid():
+        reset_token.attempts += 1
+        db.session.commit()
+        return jsonify({'error': 'PIN reset code expired or max attempts reached. Request a new code.'}), 400
+
+    if reset_token.otp_code != otp_code:
+        reset_token.attempts += 1
+        db.session.commit()
+        return jsonify({'error': 'Invalid OTP. Please try again.'}), 401
+
+    return jsonify({
+        'message': 'PIN reset OTP verified successfully.',
     }), 200
